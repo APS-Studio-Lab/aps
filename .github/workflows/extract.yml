@@ -1,0 +1,42 @@
+name: Extract text
+# Turns Drive files (by file id) into plain text in 02_Renders/_extract/: audio/video is transcribed with Whisper
+# (no Gemini quota used), AI Studio prompt files and documents are flattened to text. Logs show no names.
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: "Space-separated Drive file ids"
+        required: true
+env:
+  STUDIO_ROOT: ${{ secrets.STUDIO_ROOT || vars.STUDIO_ROOT }}
+
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg rclone pandoc > /dev/null
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -q "faster-whisper>=1.0"
+      - uses: actions/cache@v4
+        with: { path: ~/.cache/huggingface, key: whisper-large-v3 }
+      - name: Drive access
+        env: { RCLONE_CONF: "${{ secrets.RCLONE_CONF }}" }
+        run: mkdir -p ~/.config/rclone && printf '%s' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
+      - name: Extract
+        env: { IDS: "${{ inputs.ids }}" }
+        run: |
+          set -e
+          mkdir -p in out
+          n=0
+          for id in $IDS; do
+            n=$((n+1)); mkdir -p "in/$n"
+            rclone backend copyid gdrive: "$id" "in/$n/" -q
+            f=$(ls "in/$n" | head -1)
+            echo "::add-mask::$f"
+            python3 scripts/extract_text.py "in/$n/$f" "out/${id}.txt"
+            echo "item $n done"
+          done
+          rclone copy out "gdrive:$STUDIO_ROOT/02_Renders/_extract" -q
