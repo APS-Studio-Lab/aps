@@ -260,8 +260,8 @@ def cutout(video: Path, t: float, keyer: Keyer) -> tuple[np.ndarray, tuple[float
     if len(xs) < 1000:
         raise StageError(f"could not key the presenter at {t:.1f}s")
     x0, x1, y0 = xs.min(), xs.max() + 1, ys.min()
-    fc[0:14:2] -= x0
-    fc[1:14:2] -= y0
+    fc[[0, 4, 6, 8, 10, 12]] -= x0   # x of the box and the five landmarks (2, 3 are width and height)
+    fc[[1, 5, 7, 9, 11, 13]] -= y0
     rgb, a = retouch(rgb[y0:, x0:x1], a[y0:, x0:x1], fc)
     out = np.dstack([np.clip(rgb * 255, 0, 255).astype(np.uint8), (a * 255).astype(np.uint8)])
     face = (float(fc[0] + fc[2] / 2), float((fc[5] + fc[7]) / 2), float(fc[2]))
