@@ -262,7 +262,9 @@ def cutout(video: Path, t: float, keyer: Keyer) -> tuple[np.ndarray, tuple[float
     x0, x1, y0 = xs.min(), xs.max() + 1, ys.min()
     fc[[0, 4, 6, 8, 10, 12]] -= x0   # x of the box and the five landmarks (2, 3 are width and height)
     fc[[1, 5, 7, 9, 11, 13]] -= y0
+    before = rgb[y0:, x0:x1].copy()
     rgb, a = retouch(rgb[y0:, x0:x1], a[y0:, x0:x1], fc)
+    cutout.last_compare = (before, rgb, fc.copy())
     out = np.dstack([np.clip(rgb * 255, 0, 255).astype(np.uint8), (a * 255).astype(np.uint8)])
     face = (float(fc[0] + fc[2] / 2), float((fc[5] + fc[7]) / 2), float(fc[2]))
     return out, face, fc
@@ -287,7 +289,7 @@ def retouch(rgb: np.ndarray, a: np.ndarray, fc: np.ndarray) -> tuple[np.ndarray,
     hx0, hy0 = int(max(fc[0] - fw * 0.4, 0)), int(max(fc[1] - fw * 0.5, 0))
     hx1, hy1 = int(min(fc[0] + fw * 1.4, w)), int(min(fc[1] + fc[3] * 1.5, h))
     if hx1 > hx0 and hy1 > hy0:
-        u8[hy0:hy1, hx0:hx1] = cv2.fastNlMeansDenoisingColored(u8[hy0:hy1, hx0:hx1], None, 3, 3, 7, 21)
+        u8[hy0:hy1, hx0:hx1] = cv2.fastNlMeansDenoisingColored(u8[hy0:hy1, hx0:hx1], None, 2, 2, 7, 21)
     f = u8.astype(np.float32) / 255
     # 2. skin: frequency separation; smooth the low frequencies on skin, keep most of the fine texture
     ycc = cv2.cvtColor(u8, cv2.COLOR_BGR2YCrCb)
@@ -298,29 +300,30 @@ def retouch(rgb: np.ndarray, a: np.ndarray, fc: np.ndarray) -> tuple[np.ndarray,
     r = max(1.0, fw * 0.012)
     low = _blur(f, r)
     high = f - low
-    low_s = cv2.bilateralFilter(low, 0, 0.05, r * 3)
-    f = f + m[..., None] * 0.55 * ((low_s + high * 0.75) - f)
+    low_s = cv2.bilateralFilter(low, 0, 0.025, r * 2)
+    f = f + m[..., None] * 0.35 * ((low_s + high * 0.9) - f)
     # 3. local contrast and gentle dodge on the face, so it reads at phone size
     lab = cv2.cvtColor(np.clip(f, 0, 1), cv2.COLOR_BGR2Lab)
     L = lab[..., 0] / 100
     big = _blur(L, fw * 0.08 + 2)
-    L = L + 0.35 * (L - big)
+    L = L + 0.15 * (L - big)
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
     cx, cy = fc[0] + fw / 2, fc[1] + fc[3] * 0.45
     dodge = np.exp(-(((xx - cx) / (fw * 0.9)) ** 2 + ((yy - cy) / (fc[3] * 0.9)) ** 2))
-    L = L * (1 + 0.04 * dodge)
+    L = L * (1 + 0.03 * dodge)
+    L = np.where(L > 0.8, 0.8 + (L - 0.8) * 0.55, L)  # roll off highlights (the bald head clips first)
     lab[..., 0] = np.clip(L, 0, 1) * 100
-    lab[..., 1:] *= 1.10  # a touch more colour
+    lab[..., 1:] *= 1.06  # a touch more colour
     f = cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
     # 4. sharpen: overall, then extra on the eyes
     sh = f - _blur(f, max(1.0, fw * 0.004))
     eyes = np.zeros((h, w), np.float32)
     for ex, ey in ((fc[4], fc[5]), (fc[6], fc[7])):
         eyes += np.exp(-(((xx - ex) / (fw * 0.16)) ** 2 + ((yy - ey) / (fw * 0.10)) ** 2))
-    f = f + sh * (0.55 + 0.6 * eyes[..., None])
+    f = f + sh * (0.8 + 0.8 * eyes[..., None])
     f = f * (1 + 0.05 * eyes[..., None])  # a little light in the eyes
     # 5. clean matte: pull the fringe in and soften it by a pixel
-    a = np.clip((a - 0.06) / 0.94, 0, 1)
+    a = np.clip((a - 0.15) / 0.85, 0, 1)
     a = _blur(a, max(0.6, fw * 0.0015))
     return np.clip(f, 0, 1), a
 
@@ -405,6 +408,12 @@ def main(argv=None):
         try:
             host, face, _ = cutout(video, t, keyer)
             pool.append((t, host, face))
+            b4, af, fcc = cutout.last_compare  # face close-up, before | after, for review
+            x, y, w_ = int(fcc[0] - fcc[2] * .3), int(fcc[1] - fcc[3] * .3), int(fcc[2] * 1.6)
+            x, y = max(x, 0), max(y, 0)
+            pair = np.hstack([b4[y:y + w_, x:x + w_], af[y:y + w_, x:x + w_]])
+            cv2.imwrite(str(out_dir / f"retouch_{len(pool)}.jpg"), np.clip(pair * 255, 0, 255).astype(np.uint8),
+                        [cv2.IMWRITE_JPEG_QUALITY, 92])
         except StageError as e:
             report.setdefault("cutout_skipped", []).append(str(e))
     if not tc.get("at_s"):
