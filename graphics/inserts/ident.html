@@ -18,7 +18,13 @@ Scene.build("archive_hall.jpeg", { push: 0.0 });
 const s1 = Scene.cam.querySelector(".plate");
 const shot2 = el("div", "shot", Scene.cam);
 const p2 = el("div", "plate", shot2); p2.style.backgroundImage = `url(${PLATES}press_rollers.jpeg)`;
-p2.style.backgroundPosition = V ? "52% 50%" : "50% 50%";
+p2.style.backgroundPosition = V ? "60% 50%" : "50% 50%";
+// close on the inked rollers only (the paper never shows here): plate rows ~60–330 fill the frame
+p2.style.transformOrigin = V ? "60% 14%" : "55% 12%";
+// a glint travelling along the wet roller sells the rotation
+const glint = el("div", "", shot2);
+glint.style.cssText = "position:absolute;inset:0;pointer-events:none;mix-blend-mode:screen;" +
+  "background:linear-gradient(180deg,rgba(0,0,0,0) 44%,rgba(255,235,200,.10) 50%,rgba(0,0,0,0) 56%)";
 const bulb = el("div", "", Scene.cam); bulb.id = "bulb";
 bulb.style.background = "radial-gradient(circle at 50% 30%,rgba(255,200,120,.55),rgba(255,160,60,.10) 22%,rgba(0,0,0,0) 45%)";
 const dark = el("div", "", document.body); dark.id = "dark";
@@ -44,7 +50,9 @@ bindRender((t) => {
   const in2 = t >= CUT;
   shot2.style.opacity = in2 ? 1 : 0; bulb.style.display = in2 ? "none" : "block";
   const f = eOut(seg(t, CUT, CUT + 2.2));
-  p2.style.transform = `scale(${1.02 + 0.05 * seg(t, CUT, DUR)})`;
+  p2.style.transform = `scale(${2.25 + 0.10 * seg(t, CUT, CUT2)})`;
+  glint.style.backgroundSize = "100% 260%";
+  glint.style.backgroundPosition = `0 ${-40 + 140 * ((t - CUT) * 0.9 % 1)}%`;
   // shot 3
   const in3 = t >= CUT2;
   shot3.style.opacity = in3 ? 1 : 0;
