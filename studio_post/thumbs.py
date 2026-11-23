@@ -233,28 +233,88 @@ def faces_ok(crops: list[np.ndarray], model: str) -> list[tuple[bool, str]]:
     return out
 
 
-def cutout(video: Path, t: float, keyer: Keyer) -> tuple[np.ndarray, tuple[float, float, float]]:
-    """Full-resolution RGBA cut-out of the presenter at time t, cropped to the person, and the face
-    (centre x, eye-line y, width) in cut-out pixels."""
-    f = next(_decode(video, 30, 1920, 1080, start=t, frames=1))
-    det = cv2.FaceDetectorYN.create(str(MODEL), "", (1920, 1080), 0.6)
-    _, faces = det.detect(f)
+def cutout(video: Path, t: float, keyer: Keyer) -> tuple[np.ndarray, tuple[float, float, float], np.ndarray]:
+    """RGBA cut-out of the presenter at time t at the source's own resolution (up to 4K, so the big face stays
+    sharp), cropped to the person; the face (centre x, eye-line y, width) and its YuNet row, in cut-out pixels."""
+    info = ffprobe(video)
+    vs = next(s for s in info["streams"] if s["codec_type"] == "video")
+    sw, sh = int(vs["width"]), int(vs["height"])
+    if sw > 3840:
+        sw, sh = 3840, int(round(sh * 3840 / sw / 2) * 2)
+    f = next(_decode(video, 30, sw, sh, start=t, frames=1))
+    k = 1920 / sw
+    small = cv2.resize(f, (1920, int(round(sh * k))), interpolation=cv2.INTER_AREA)
+    det = cv2.FaceDetectorYN.create(str(MODEL), "", (small.shape[1], small.shape[0]), 0.6)
+    _, faces = det.detect(small)
     if faces is None or not len(faces):
         raise StageError(f"no face at {t:.1f}s for the thumbnail")
-    fc = max(faces, key=lambda r: r[2] * r[3])
+    fc = max(faces, key=lambda r: r[2] * r[3]).copy()
     eye_y, mouth_y = (fc[5] + fc[7]) / 2, (fc[11] + fc[13]) / 2
     pitch = (fc[9] - eye_y) / max(1.0, mouth_y - eye_y)
     if pitch > 0.62 or fc[14] < 0.85:
         raise StageError(f"face at {t:.1f}s is not facing the camera")
+    fc[:14] /= k
     a = keyer.alpha(f)
     rgb = despill(f.astype(np.float32) / 255)
     ys, xs = np.where(a > 0.05)
     if len(xs) < 1000:
         raise StageError(f"could not key the presenter at {t:.1f}s")
     x0, x1, y0 = xs.min(), xs.max() + 1, ys.min()
-    out = np.dstack([np.clip(rgb[y0:, x0:x1] * 255, 0, 255).astype(np.uint8), (a[y0:, x0:x1] * 255).astype(np.uint8)])
-    face = (float(fc[0] + fc[2] / 2 - x0), float((fc[5] + fc[7]) / 2 - y0), float(fc[2]))
-    return out, face
+    fc[0:14:2] -= x0
+    fc[1:14:2] -= y0
+    rgb, a = retouch(rgb[y0:, x0:x1], a[y0:, x0:x1], fc)
+    out = np.dstack([np.clip(rgb * 255, 0, 255).astype(np.uint8), (a * 255).astype(np.uint8)])
+    face = (float(fc[0] + fc[2] / 2), float((fc[5] + fc[7]) / 2), float(fc[2]))
+    return out, face, fc
+
+
+def retouch(rgb: np.ndarray, a: np.ndarray, fc: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Photo retouch of a real frame, the way a thumbnail designer would do it by hand: clean noise, even the
+    skin (texture kept), local contrast, crisp eyes, punchier colour, clean matte edge. Classic image
+    processing only: no generative model, the face is never redrawn or reshaped."""
+    h, w = rgb.shape[:2]
+    fw = float(fc[2])
+    u8 = np.clip(rgb * 255, 0, 255).astype(np.uint8)
+    # 1. noise: denoise the head area only (phone sensor noise shows when the face is blown up)
+    hx0, hy0 = int(max(fc[0] - fw * 0.4, 0)), int(max(fc[1] - fw * 0.5, 0))
+    hx1, hy1 = int(min(fc[0] + fw * 1.4, w)), int(min(fc[1] + fc[3] * 1.5, h))
+    if hx1 > hx0 and hy1 > hy0:
+        u8[hy0:hy1, hx0:hx1] = cv2.fastNlMeansDenoisingColored(u8[hy0:hy1, hx0:hx1], None, 3, 3, 7, 21)
+    f = u8.astype(np.float32) / 255
+    # 2. skin: frequency separation; smooth the low frequencies on skin, keep most of the fine texture
+    ycc = cv2.cvtColor(u8, cv2.COLOR_BGR2YCrCb)
+    skin = ((ycc[..., 1] > 133) & (ycc[..., 1] < 180) & (ycc[..., 2] > 77) & (ycc[..., 2] < 135)).astype(np.float32)
+    edges = cv2.Canny(u8, 40, 110).astype(np.float32) / 255  # glasses, eyes, brows, lips stay untouched
+    edges = cv2.GaussianBlur(cv2.dilate(edges, np.ones((5, 5), np.uint8)), (0, 0), fw * 0.01 + 1)
+    m = cv2.GaussianBlur(skin, (0, 0), fw * 0.015 + 1) * np.clip(1 - edges * 2.5, 0, 1) * a
+    r = max(1.0, fw * 0.012)
+    low = cv2.GaussianBlur(f, (0, 0), r)
+    high = f - low
+    low_s = cv2.bilateralFilter(low, 0, 0.05, r * 3)
+    f = f + m[..., None] * 0.55 * ((low_s + high * 0.75) - f)
+    # 3. local contrast and gentle dodge on the face, so it reads at phone size
+    lab = cv2.cvtColor(np.clip(f, 0, 1), cv2.COLOR_BGR2Lab)
+    L = lab[..., 0] / 100
+    big = cv2.GaussianBlur(L, (0, 0), fw * 0.08 + 2)
+    L = L + 0.35 * (L - big)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    cx, cy = fc[0] + fw / 2, fc[1] + fc[3] * 0.45
+    dodge = np.exp(-(((xx - cx) / (fw * 0.9)) ** 2 + ((yy - cy) / (fc[3] * 0.9)) ** 2))
+    L = L * (1 + 0.04 * dodge)
+    lab[..., 0] = np.clip(L, 0, 1) * 100
+    lab[..., 1:] *= 1.10  # a touch more colour
+    f = cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
+    # 4. sharpen: overall, then extra on the eyes
+    sh = f - cv2.GaussianBlur(f, (0, 0), max(1.0, fw * 0.004))
+    eyes = np.zeros((h, w), np.float32)
+    for ex, ey in ((fc[4], fc[5]), (fc[6], fc[7])):
+        eyes += np.exp(-(((xx - ex) / (fw * 0.16)) ** 2 + ((yy - ey) / (fw * 0.10)) ** 2))
+    f = f + sh * (0.55 + 0.6 * eyes[..., None])
+    f = f * (1 + 0.05 * eyes[..., None])  # a little light in the eyes
+    # 5. clean matte: pull the fringe in and soften it by a pixel
+    a = np.clip((a - 0.06) / 0.94, 0, 1)
+    a = cv2.GaussianBlur(a, (0, 0), max(0.6, fw * 0.0015))
+    return np.clip(f, 0, 1), a
 
 
 def grade_scene(img: np.ndarray) -> np.ndarray:
@@ -335,7 +395,8 @@ def main(argv=None):
         if len(pool) >= (3 if tc.get("at_s") else 12):
             break
         try:
-            pool.append((t,) + cutout(video, t, keyer))
+            host, face, _ = cutout(video, t, keyer)
+            pool.append((t, host, face))
         except StageError as e:
             report.setdefault("cutout_skipped", []).append(str(e))
     if not tc.get("at_s"):
