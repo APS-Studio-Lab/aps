@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../_lib/common.css"><style>
+.wrap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;direction:rtl}
+#label{font:700 54px Tajawal;color:#b9c9c0;letter-spacing:1px}
+#num{font:900 300px/1 Cairo;color:#f5b400;direction:ltr;margin-top:10px;letter-spacing:-8px;position:relative}
+#strike{position:absolute;left:-30px;right:-30px;top:50%;height:24px;background:#ff4d52;box-shadow:0 0 30px rgba(255,77,82,.5);transform-origin:left center;border-radius:4px}
+#after{font:900 120px/1.1 Cairo;margin-top:40px}
+#date{font:700 46px Tajawal;color:#b9c9c0;margin-top:34px}
+#bar{width:0;height:6px;background:#f5b400;margin-top:30px;border-radius:3px}
+</style></head><body><div class="grain"></div><div class="wrap">
+<div id="label">قيمة أوبر في 2017</div>
+<div id="num"><span id="val">$0B</span><div id="strike"></div></div>
+<div id="bar"></div>
+<div id="after">والمؤسس.. <span class="gold">برّه الشركة</span></div>
+<div id="date">20 يونيو 2017 · استقالة تحت ضغط المستثمرين</div>
+</div><script src="../_lib/common.js"></script><script>
+window.render=(t)=>{
+ show($('label'),eOut(seg(t,0.1,0.7)));
+ const c=eInOut(seg(t,0.3,2.2)); $('val').textContent='$'+Math.round(70*c)+'B';
+ $('num').style.transform=`scale(${0.85+0.15*eBack(seg(t,0.3,1.0))})`; $('num').style.opacity=seg(t,0.3,0.6);
+ $('bar').style.width=(520*eOut(seg(t,0.4,2.2)))+'px';
+ $('strike').style.transform=`scaleX(${eOut(seg(t,2.8,3.2))})`;
+ $('val').style.opacity=1-0.55*seg(t,2.9,3.4);
+ show($('after'),eOut(seg(t,3.2,3.8)),60);
+ show($('date'),eOut(seg(t,3.6,4.2)),30);
+ const out=seg(t,5.6,6.0); document.querySelector('.wrap').style.opacity=1-out;
+};
+</script></body></html>

@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../_lib/common.css"><style>
+#h{position:absolute;top:110px;right:140px;direction:rtl;font:900 96px Cairo}
+#h small{display:block;font:700 40px Tajawal;color:#b9c9c0}
+#line{position:absolute;top:560px;right:140px;height:6px;width:0;background:#f5b400;border-radius:3px}
+.ev{position:absolute;top:470px;width:320px;direction:rtl;text-align:center;opacity:0}
+.dot{width:34px;height:34px;border-radius:50%;background:#040906;border:6px solid #f5b400;margin:0 auto 40px;margin-top:73px}
+.d{font:900 50px Cairo;color:#f5b400}
+.tx{font:700 32px/1.35 Tajawal;color:#e3ebe7;margin-top:10px}
+.ev.key .dot{background:#e5484d;border-color:#e5484d;transform:scale(1.25)}
+.ev.key .d{color:#ff6b6f}
+</style></head><body><div class="grain"></div>
+<div id="h"><small>أوبر · سنة الانهيار</small>2017</div>
+<div id="line"></div>
+<div class="ev" id="e1" style="right:40px"><div class="dot"></div><div class="d">19 فبراير</div><div class="tx">سوزان فاولر تنشر<br>شهادتها عن التحرش</div></div>
+<div class="ev" id="e2" style="right:360px"><div class="dot"></div><div class="d">23 فبراير</div><div class="tx">Waymo ترفع قضية<br>سرقة أسرار تجارية</div></div>
+<div class="ev" id="e3" style="right:680px"><div class="dot"></div><div class="d">مارس</div><div class="tx">فضيحة Greyball<br>والتحقيقات تبدأ</div></div>
+<div class="ev key" id="e4" style="right:1000px"><div class="dot"></div><div class="d">20 يونيو</div><div class="tx">كالانيك يستقيل<br>تحت ضغط المستثمرين</div></div>
+<div class="ev" id="e5" style="right:1320px"><div class="dot"></div><div class="d">أغسطس</div><div class="tx">دارا خسروشاهي<br>رئيساً تنفيذياً</div></div>
+<script src="../_lib/common.js"></script><script>
+const at=[0.9,1.7,2.5,3.4,4.5];
+window.render=(t)=>{
+ show($('h'),eOut(seg(t,0.1,0.7)),30);
+ $('line').style.width=(1640*eInOut(seg(t,0.6,5.0)))+'px';
+ at.forEach((a,i)=>{const e=$('e'+(i+1)); const p=eOut(seg(t,a,a+0.5)); const dim=(i==3)?0:0.55*seg(t,5.4,5.8); e.style.opacity=p*(1-dim); e.style.transform=`translateY(${(1-p)*30}px)`;
+   e.querySelector('.dot').style.transform=`scale(${(i==3?1.25:1)*eBack(seg(t,a,a+0.4))})`;});
+ 
+ document.body.style.opacity=1-seg(t,7.6,8.0);
+};
+</script></body></html>

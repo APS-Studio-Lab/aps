@@ -1,0 +1,49 @@
+/* Archive inserts: a real camera over a real table. Everything here is paper, ink and light. */
+@font-face{font-family:Ruqaa;src:url(../../brand/fonts/ArefRuqaa-Bold.ttf)}
+@font-face{font-family:Amiri;src:url(../../brand/fonts/Amiri-Bold.ttf);font-weight:700}
+@font-face{font-family:AmiriR;src:url(../../brand/fonts/Amiri-Regular.ttf)}
+@font-face{font-family:Cairo;src:url(../../brand/fonts/Cairo-Black.ttf);font-weight:900}
+@font-face{font-family:Courier;src:url(../../brand/fonts/CourierPrime-Bold.ttf)}
+@font-face{font-family:Typewriter;src:url(../../brand/fonts/SpecialElite-Regular.ttf)}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100vw;height:100vh;overflow:hidden;background:#0d0906}
+/* --u: one unit = 1/1000 of the short side, so 16:9 and 9:16 share one layout */
+body{--u:calc(min(100vw,100vh)/1000)}
+@media (orientation:portrait){body{--u:calc(100vw/780)}}
+
+#cam{position:absolute;inset:0;transform-origin:50% 50%;will-change:transform,filter}
+.plate{position:absolute;inset:-4%;background-size:cover;background-position:center}
+.lamp{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 58% 60% at 52% 42%,rgba(255,200,130,.10),rgba(0,0,0,0) 55%),
+             radial-gradient(ellipse 75% 80% at 52% 42%,rgba(0,0,0,0) 40%,rgba(20,10,0,.42) 100%)}
+.vignette{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 80% 80% at 50% 48%,rgba(0,0,0,0) 48%,rgba(0,0,0,.72) 100%)}
+canvas.grain{position:absolute;inset:0;width:100%;height:100%;opacity:.10;mix-blend-mode:overlay;pointer-events:none}
+.dust{position:absolute;border-radius:50%;background:rgba(255,236,200,.55);filter:blur(1px);pointer-events:none}
+
+/* a piece of paper lying on the table: shadow on the holder, torn/deckle edge on the sheet */
+.sheet-holder{position:absolute;transform-origin:50% 50%;will-change:transform,filter}
+.sheet{position:relative;background-size:cover;background-position:center;overflow:hidden}
+.sheet::after{content:"";position:absolute;inset:0;pointer-events:none;mix-blend-mode:multiply;
+  background:linear-gradient(160deg,rgba(255,250,235,0),rgba(120,80,30,.22)),
+             radial-gradient(ellipse 110% 95% at 45% 35%,rgba(255,255,255,0) 50%,rgba(90,55,20,.38) 100%)}
+.sheet{filter:sepia(.22) contrast(1.03) brightness(.97)}
+.ink{color:#231a10;mix-blend-mode:multiply;text-shadow:0 0 calc(var(--u)*.7) rgba(35,26,16,.55)}
+.rtl{direction:rtl;text-align:right}
+.ltr{direction:ltr;text-align:left}
+
+.rule{height:calc(var(--u)*3);background:#231a10;opacity:.85;mix-blend-mode:multiply}
+.rule.thin{height:calc(var(--u)*1.2)}
+
+/* highlighter and red pencil */
+.hl{position:absolute;background:rgba(255,206,40,.62);mix-blend-mode:multiply;border-radius:calc(var(--u)*3);
+  filter:url(#rough);transform-origin:100% 50%}
+svg.draw{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+svg.draw path,svg.draw line,svg.draw circle,svg.draw ellipse{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.pencil{stroke:#a8231a;mix-blend-mode:multiply;filter:url(#rough)}
+.penink{stroke:#231a10;mix-blend-mode:multiply;filter:url(#rough)}
+
+/* rubber stamp */
+.stamp{position:absolute;color:#a3150e;border:calc(var(--u)*5) double #a3150e;border-radius:calc(var(--u)*8);
+  mix-blend-mode:multiply;filter:url(#stampink);white-space:nowrap;transform-origin:50% 50%}

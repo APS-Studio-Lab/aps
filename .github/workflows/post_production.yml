@@ -1,0 +1,60 @@
+name: Post-production
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Inbox folder name in Drive (leave empty to take the next one)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "17 6,18 * * *"   # twice a day (UTC); also run it manually from the GitHub app
+
+concurrency:
+  group: post-production
+  cancel-in-progress: false
+
+env:
+  STUDIO_ROOT: ${{ vars.STUDIO_ROOT }}   # Drive folder name; set under Settings → Variables
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg rclone
+          ffmpeg -hide_banner -filters | grep -q zscale || (echo "ffmpeg lacks zscale (needed for HDR)"; exit 1)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Python packages
+        run: pip install -r requirements.txt
+
+      - name: Whisper model cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-large-v3
+
+      - name: Drive access
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: |
+          test -n "$RCLONE_CONF" || (echo "Secret RCLONE_CONF is missing; see docs/SETUP.md"; exit 1)
+          mkdir -p ~/.config/rclone
+          printf '%s' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
+          rclone lsd "gdrive:$STUDIO_ROOT" >/dev/null
+
+      - name: Render next job
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || secrets.GEMINI_KEY }}
+        run: scripts/drive_job.sh "${{ github.event.inputs.job }}"

@@ -1,0 +1,8 @@
+@font-face{font-family:Cairo;src:url(../../brand/fonts/Cairo-Black.ttf);font-weight:900}
+@font-face{font-family:Tajawal;src:url(../../brand/fonts/Tajawal-Bold.ttf);font-weight:700}
+@font-face{font-family:Almarai;src:url(../../brand/fonts/Almarai-ExtraBold.ttf);font-weight:800}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{background:radial-gradient(ellipse 70% 90% at 50% 45%,#123526 0%,#0a1c15 50%,#040906 100%);color:#fff;font-family:Almarai;position:relative}
+.grain{position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);background-size:4px 4px}
+.gold{color:#f5b400}

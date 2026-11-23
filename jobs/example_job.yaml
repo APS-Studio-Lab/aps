@@ -1,0 +1,53 @@
+# Drop this file as job.yaml next to the footage in Drive: <studio folder>/01_Inbox/<job>/
+job: uber_ep5_power_sample
+inputs:
+  video: uber_greenscreen_3min.mov     # relative to this file
+  voice: E5-Voice.m4a                  # optional lapel recording; synced automatically
+
+edit:
+  max_seconds: null                    # e.g. 60 to cap a short
+  speech_threshold_db: -45
+  look_down_pitch: 0.66
+
+transcript:
+  engine: gemini                       # gemini (needs GEMINI_API_KEY secret) or whisper; the other is the backup
+  gemini_model: gemini-3.5-flash
+  glossary: ["أوبر", "Uber", "Travis Kalanick", "Benchmark"]   # names and terms said in this episode
+
+retakes:
+  enabled: true                        # keep only the last attempt of a repeated line
+
+short:
+  tag: "UBER · مدرسة القوة"
+  headline: ["القوة اللي بنته", "هي اللي هدّته"]
+
+captions:
+  enabled: true
+
+cutaways:
+  - graphic_h: graphics/uber_ep5/power_school.html
+    graphic_v: graphics/uber_ep5/power_school_vertical.html
+    at_phrase: "مدرسة القوة"            # placed where these words are spoken; or use at_s: 20
+    seconds: 6
+
+background:
+  # image_h: ../../00_Brand/sets/study_16x9.png   # a set plate from docs/prompts/sets.md
+  # image_v: ../../00_Brand/sets/study_9x16.png
+  light_from: left                     # side of the set's main lamp; the presenter is relit to match
+  seed: 3
+
+look:
+  normalise_strength: 0.7              # 0 = keep each take as shot, 1 = force identical exposure/colour
+
+output:
+  master_4k: true                      # 2160p master for YouTube
+
+# Joins: every cut (made here, or already inside a pre-edited export) is hidden with alternating
+# wide/close framing anchored on the face, plus a tiny audio crossfade. Large pose jumps are flagged
+# in the report as places to cover with an insert.
+joins:
+  enabled: true
+  punch_in: 1.18        # close framing = 18% punch-in
+  min_segment_s: 0.8    # shorter pieces are flagged in the report
+# edit:
+#   mode: keep          # the video is already cut by hand (e.g. a Filmora export): keep every frame

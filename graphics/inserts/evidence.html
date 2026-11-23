@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="inserts.css">
+<style>
+/* Evidence: the REAL page (a screenshot or PDF page of the actual article/paper/filing) printed onto
+   paper, laid on the table; one line highlighted; the source stamped on the clipping. Never recreated. */
+.print{position:absolute;inset:5% 5% 13% 5%;background-size:cover;background-position:top center;
+  filter:grayscale(1) contrast(1.15) brightness(1.05) sepia(.25);mix-blend-mode:multiply}
+.srcline{position:absolute;left:5%;right:5%;bottom:4%;font:calc(var(--u)*22) Typewriter;opacity:.8}
+.stamp{font:calc(var(--u)*34)/1 Ruqaa;padding:calc(var(--u)*10) calc(var(--u)*24) calc(var(--u)*4)}
+</style></head>
+<body>
+<script>/*DATA*/</script>
+<script src="inserts.js"></script>
+<script>
+Scene.build("layout_table.jpeg", { push: 0.06, panY: -0.008 });
+// the clipping keeps the page's aspect ratio (D.aspect = width/height of the image)
+const ar = D.aspect || 0.8;
+let H = innerHeight * (V ? 0.62 : 0.84), W = H * ar;
+const maxW = innerWidth * (V ? 0.9 : 0.62);
+if (W > maxW) { W = maxW; H = W / ar; }
+const s = makeSheet(Scene.stage, { w: W, h: H, x: (innerWidth - W) / 2, y: (innerHeight - H) / 2,
+                                   rot: V ? -1 : -1.8, seed: D.seed || 31, rough: .35 });
+s.sheet.innerHTML = `<div class="print" style="background-image:url('${D.image}')"></div>
+  <div class="srcline ink ltr">${D.source}</div>`;
+// highlight box, in fractions of the printed page (D.hl = [x, y, w, h])
+let hl = null;
+if (D.hl) {
+  const [x, y, w, h] = D.hl;
+  hl = el("div", "hl", s.sheet);
+  hl.style.cssText += `left:${5 + x * 90}%;top:${5 + y * 82}%;width:${w * 90}%;height:${h * 82}%`;
+}
+const st = el("div", "stamp ink", s.sheet, D.stamp || D.date || "");
+st.style.cssText += "left:58%;top:76%";
+if (!st.textContent) st.remove();
+bindRender((t) => {
+  placeSheet(s, t, 0.05, { from: V ? [0, 0.6] : [0.42, 0.25], dur: .8, startRot: 7 });
+  if (hl) stroke(hl, t, 1.25, .55, !!D.hl_rtl);
+  if (st.isConnected) thump(st, t, 2.0, -7);
+});
+</script>
+</body></html>

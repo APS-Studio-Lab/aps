@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="inserts.css">
+<style>
+.col{position:absolute;inset:7% 8% 7% 8%;display:flex;flex-direction:column}
+.kicker{font:calc(var(--u)*30) Ruqaa;text-align:center;letter-spacing:calc(var(--u)*1)}
+.term{font:700 calc(var(--u)*74)/1.15 Amiri;margin-top:calc(var(--u)*14)}
+.en{font:calc(var(--u)*28) Courier;margin-top:calc(var(--u)*4);opacity:.85}
+.def{font:calc(var(--u)*37)/1.6 AmiriR;margin-top:calc(var(--u)*16)}
+.ex{font:calc(var(--u)*32)/1.55 AmiriR;margin-top:calc(var(--u)*14)}
+.ex b{font-family:Amiri;font-weight:700}
+.src{font:calc(var(--u)*19) Typewriter;margin-top:auto;opacity:.75}
+.termwrap{position:relative;display:inline-block;align-self:flex-start}
+</style></head>
+<body>
+<script>/*DATA*/</script>
+<script src="inserts.js"></script>
+<script>
+Scene.build("layout_table.jpeg", { push: 0.05, panX: V ? 0 : -0.01 });
+const W = V ? innerWidth * 0.86 : innerWidth * 0.42;
+const H = V ? innerHeight * 0.62 : innerHeight * 0.80;
+const s = makeSheet(Scene.stage, { w: W, h: H, x: (innerWidth - W) / 2 + (V ? 0 : innerWidth * 0.04),
+                                   y: (innerHeight - H) / 2, rot: V ? -1.2 : -2.2, seed: D.seed || 5 });
+s.sheet.innerHTML = `
+  <div class="col rtl ink">
+    <div class="kicker">قاموس البيزنس</div>
+    <div class="rule" style="margin-top:calc(var(--u)*10)"></div><div class="rule thin" style="margin-top:calc(var(--u)*4)"></div>
+    <div class="termwrap"><div class="hl" id="hl" style="inset:18% -3% 8% -3%"></div><div class="term">${D.term}</div></div>
+    <div class="en ltr" style="align-self:flex-start;direction:ltr">${D.term_en || ""}</div>
+    <div class="def">${D.definition}</div>
+    ${D.example ? `<div class="ex"><b>زي إيه؟</b> ${D.example}</div>` : ""}
+    ${D.source ? `<div class="src rtl">${D.source}</div>` : ""}
+  </div>`;
+// the highlight sits under the term (multiply) — move it behind the text
+const hl = $("hl"); hl.parentElement.insertBefore(hl, hl.parentElement.firstChild);
+bindRender((t) => {
+  placeSheet(s, t, 0.05, { from: V ? [0, 0.6] : [-0.45, 0.18], dur: .8 });
+  stroke(hl, t, 1.15, .45);
+});
+</script>
+</body></html>

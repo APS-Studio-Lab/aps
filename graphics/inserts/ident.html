@@ -1,0 +1,78 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="inserts.css">
+<style>
+.shot{position:absolute;inset:0;overflow:hidden}
+.shot .plate{position:absolute;inset:-4%;background-size:cover;background-position:center}
+#dark{position:absolute;inset:0;background:#000;pointer-events:none}
+#bulb{position:absolute;inset:0;pointer-events:none;mix-blend-mode:screen}
+#print{position:absolute;left:0;top:0;width:1000px;height:600px;transform-origin:0 0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center}
+#print img{width:46%;filter:brightness(0) saturate(0) contrast(1.4);opacity:.88;mix-blend-mode:multiply}
+#print .ep{font:700 50px Amiri;color:#231a10;mix-blend-mode:multiply;margin-top:26px;opacity:.85}
+</style></head>
+<body>
+<script>/*DATA*/</script>
+<script src="inserts.js"></script>
+<script>
+// Shot 1: the archive aisle in the dark; the bulb flickers on and the camera walks in.
+// Shot 2: the press; the show's name is printed onto the blank sheet coming out of the rollers.
+Scene.build("archive_hall.jpeg", { push: 0.0 });
+const s1 = Scene.cam.querySelector(".plate");
+const shot2 = el("div", "shot", Scene.cam);
+const p2 = el("div", "plate", shot2); p2.style.backgroundImage = `url(${PLATES}press_rollers.jpeg)`;
+p2.style.backgroundPosition = V ? "52% 50%" : "50% 50%";
+const print = el("div", "", shot2); print.id = "print";
+print.innerHTML = `<img src="${D.logo}">${D.episode ? `<div class="ep">${D.episode}</div>` : ""}`;
+const bulb = el("div", "", Scene.cam); bulb.id = "bulb";
+bulb.style.background = "radial-gradient(circle at 50% 30%,rgba(255,200,120,.55),rgba(255,160,60,.10) 22%,rgba(0,0,0,0) 45%)";
+const dark = el("div", "", document.body); dark.id = "dark";
+const CUT = D.cut || 2.7;
+
+// the sheet in the press plate (1376 x 768): its visible quad
+const SHEET = [[470, 400], [1030, 428], [1000, 700], [330, 690]];
+function homography(src, dst) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  for (let c = 0; c < 8; c++) {
+    let p = c; for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
+    for (let r = 0; r < 8; r++) if (r !== c) { const f = A[r][c] / A[c][c]; for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k]; b[r] -= f * b[c]; }
+  }
+  const h = b.map((v, i) => v / A[i][i]);
+  return [h[0], h[3], 0, h[6], h[1], h[4], 0, h[7], 0, 0, 1, 0, h[2], h[5], 0, 1];
+}
+function mapPrint(feed) {
+  const bw = innerWidth * 1.08, bh = innerHeight * 1.08, sc = Math.max(bw / 1376, bh / 768);
+  const px = V ? .52 : .5;
+  const ox = -innerWidth * .04 + (bw - 1376 * sc) * px, oy = -innerHeight * .04 + (bh - 768 * sc) / 2;
+  // the printed area slides out of the rollers with the paper (feed 0..1)
+  const q = SHEET.map(([x, y], i) => [ox + x * sc, oy + (y - 30 + feed * 45) * sc]);
+  print.style.transform = `matrix3d(${homography([[0, 0], [1000, 0], [1000, 600], [0, 600]], q).join(",")})`;
+}
+bindRender((t) => {
+  // shot 1: flicker on, then walk in
+  const on = t < .35 ? 0 : t < .5 ? .7 : t < .6 ? .15 : t < .75 ? .9 : t < .82 ? .4 : 1;
+  s1.style.filter = `brightness(${0.08 + 0.92 * on})`;
+  bulb.style.opacity = on;
+  s1.style.transform = `scale(${1 + 0.16 * eInOut(seg(t, .6, CUT))})`;
+  // shot 2
+  const in2 = t >= CUT;
+  shot2.style.opacity = in2 ? 1 : 0; bulb.style.display = in2 ? "none" : "block";
+  const f = eOut(seg(t, CUT, CUT + 2.2));
+  p2.style.transform = `scale(${1.02 + 0.05 * seg(t, CUT, DUR)})`;
+  mapPrint(f);
+  print.style.transformOrigin = "0 0";
+  // the print appears as the sheet clears the inked roller: reveal top-to-bottom
+  const rv = seg(t, CUT + .2, CUT + 1.6);
+  print.style.clipPath = `inset(0 0 ${100 - rv * 100}% 0)`;
+  // fade from black at the start, short dip at the cut, fade at the end
+  const fade = Math.max(1 - seg(t, 0, .3), t > CUT - .08 && t < CUT + .12 ? .85 : 0, seg(t, DUR - .4, DUR));
+  dark.style.opacity = fade;
+});
+</script>
+</body></html>

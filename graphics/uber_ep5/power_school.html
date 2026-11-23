@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../_lib/common.css"><style>
+#head{position:absolute;top:120px;width:100%;text-align:center;direction:rtl}
+#k{font:700 40px Tajawal;color:#b9c9c0}
+#title{font:900 110px/1.15 Cairo}
+.card{position:absolute;top:400px;width:760px;height:460px;border-radius:24px;padding:56px 60px;direction:rtl;text-align:right;background:rgba(255,255,255,.04);border:2px solid rgba(255,255,255,.12)}
+#c1{right:150px} #c2{left:150px}
+.en{font:800 40px Almarai;color:#f5b400;direction:ltr;text-align:right}
+.ar{font:900 84px/1.2 Cairo;margin-top:6px}
+.ex{font:700 40px/1.5 Tajawal;color:#d5e0da;margin-top:26px}
+.acc{position:absolute;top:0;right:0;width:10px;height:0;background:#f5b400;border-radius:0 24px 0 0}
+#vs{position:absolute;top:590px;left:50%;transform:translateX(-50%);font:900 60px Cairo;color:#f5b400}
+</style></head><body><div class="grain"></div>
+<div id="head"><div id="k">Mintzberg · Strategy Safari</div><div id="title">مدرسة <span class="gold">القوة</span></div></div>
+<div class="card" id="c1"><div class="acc" id="a1"></div><div class="en">Micro Power</div><div class="ar">القوة الداخلية</div><div class="ex">صراع جوه الشركة:<br>المستثمرين ضد المؤسس</div></div>
+<div class="card" id="c2"><div class="acc" id="a2"></div><div class="en">Macro Power</div><div class="ar">القوة الخارجية</div><div class="ex">نفوذ الشركة في السوق:<br>Greyball وليّ ذراع المدن</div></div>
+<div id="vs">×</div>
+<script src="../_lib/common.js"></script><script>
+window.render=(t)=>{
+ show($('k'),eOut(seg(t,0.1,0.6)),20); show($('title'),eOut(seg(t,0.25,0.9)),40);
+ const p1=eOut(seg(t,1.0,1.7)), p2=eOut(seg(t,1.5,2.2));
+ $('c1').style.opacity=p1; $('c1').style.transform=`translateX(${(1-p1)*120}px)`;
+ $('c2').style.opacity=p2; $('c2').style.transform=`translateX(${-(1-p2)*120}px)`;
+ $('a1').style.height=(460*eOut(seg(t,1.6,2.4)))+'px'; $('a2').style.height=(460*eOut(seg(t,2.1,2.9)))+'px';
+ const v=eBack(seg(t,2.6,3.0)); $('vs').style.opacity=seg(t,2.6,2.8); $('vs').style.transform=`translateX(-50%) scale(${v})`;
+ document.body.style.opacity=1-seg(t,6.6,7.0);
+};
+</script></body></html>

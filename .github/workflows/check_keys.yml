@@ -1,0 +1,20 @@
+name: Check keys
+on: workflow_dispatch
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Gemini key
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || secrets.GEMINI_KEY }}
+        run: |
+          [ -n "$GEMINI_API_KEY" ] || { echo "GEMINI_API_KEY is not set"; exit 1; }
+          code=$(curl -s -o /tmp/r.json -w '%{http_code}' -H "x-goog-api-key: $GEMINI_API_KEY" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash")
+          echo "Gemini answered HTTP $code"
+          [ "$code" = 200 ] || { grep -o '"message": *"[^"]*"' /tmp/r.json; exit 1; }
+      - name: Drive config
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: '[ -n "$RCLONE_CONF" ] && echo "RCLONE_CONF present" || { echo "RCLONE_CONF missing"; exit 1; }'

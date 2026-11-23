@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="inserts.css">
+<style>
+/* a real quote, typeset as a newspaper pull-quote clipping; the original words stay in their language,
+   an Ammia gloss sits under them, and the source is stamped on the clipping */
+.col{position:absolute;inset:9% 9% 8% 9%;display:flex;flex-direction:column}
+.mark{font:700 calc(var(--u)*150)/.6 Amiri;opacity:.25;height:calc(var(--u)*70)}
+.q{font:calc(var(--u)*44)/1.35 Courier;letter-spacing:calc(var(--u)*-.5)}
+.q.ar{font:700 calc(var(--u)*50)/1.45 Amiri}
+.gloss{font:calc(var(--u)*34)/1.55 AmiriR;margin-top:calc(var(--u)*22)}
+.who{font:700 calc(var(--u)*30) Amiri;margin-top:calc(var(--u)*26)}
+.src{font:calc(var(--u)*20) Typewriter;opacity:.75;margin-top:calc(var(--u)*6)}
+.qwrap{position:relative}
+</style></head>
+<body>
+<script>/*DATA*/</script>
+<script src="inserts.js"></script>
+<script>
+Scene.build("layout_table.jpeg", { push: 0.05, panX: V ? 0 : 0.01 });
+const W = V ? innerWidth * 0.88 : innerWidth * 0.50;
+const H = V ? innerHeight * 0.58 : innerHeight * 0.74;
+const s = makeSheet(Scene.stage, { w: W, h: H, x: (innerWidth - W) / 2 - (V ? 0 : innerWidth * 0.03),
+                                   y: (innerHeight - H) / 2, rot: V ? 1.0 : 1.6, seed: D.seed || 8 });
+const ar = /[؀-ۿ]/.test(D.quote);
+s.sheet.innerHTML = `
+  <div class="col ink ${ar ? "rtl" : "ltr"}">
+    <div class="mark">${ar ? "»" : "“"}</div>
+    <div class="qwrap"><div class="hl" id="hl" style="left:-1%;right:-1%;top:${D.hl_top ?? 4}%;height:${D.hl_height ?? 30}%"></div>
+      <div class="q ${ar ? "ar" : ""}">${D.quote}</div></div>
+    ${D.gloss ? `<div class="gloss rtl">${D.gloss}</div>` : ""}
+    <div class="who rtl">— ${D.who}</div>
+    <div class="src rtl">${D.source}</div>
+  </div>`;
+const hl = $("hl"); hl.parentElement.insertBefore(hl, hl.parentElement.firstChild);
+bindRender((t) => {
+  placeSheet(s, t, 0.05, { from: V ? [0, 0.6] : [0.45, 0.2], dur: .8, startRot: 8 });
+  if (D.highlight !== false) stroke(hl, t, 1.3, .6, ar);
+});
+</script>
+</body></html>

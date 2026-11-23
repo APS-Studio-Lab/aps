@@ -1,0 +1,39 @@
+@font-face{font-family:Ruqaa;src:url(../../brand/fonts/ArefRuqaa-Bold.ttf)}
+@font-face{font-family:Amiri;src:url(../../brand/fonts/Amiri-Bold.ttf);font-weight:700}
+@font-face{font-family:AmiriR;src:url(../../brand/fonts/Amiri-Regular.ttf)}
+@font-face{font-family:Courier;src:url(../../brand/fonts/CourierPrime-Bold.ttf)}
+@font-face{font-family:Typewriter;src:url(../../brand/fonts/SpecialElite-Regular.ttf)}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#120b06}
+#cam{position:absolute;inset:0;transform-origin:50% 50%}
+/* walnut desk */
+.desk{position:absolute;inset:-120px;background:linear-gradient(170deg,#3b2615,#2a190d 55%,#1a0f07)}
+.desk::before{content:"";position:absolute;inset:0;filter:url(#woodgrain);background:#2b1a0d}
+.blotter{position:absolute;left:90px;top:90px;right:90px;bottom:90px;background:#1f3326;box-shadow:inset 0 0 120px rgba(0,0,0,.7),0 10px 30px rgba(0,0,0,.6);filter:url(#felt)}
+.lamp{position:absolute;inset:0;background:radial-gradient(ellipse 55% 60% at 58% 42%,rgba(255,196,120,.42),rgba(255,160,80,.12) 45%,rgba(0,0,0,0) 70%);mix-blend-mode:screen}
+.shade{position:absolute;inset:0;background:radial-gradient(ellipse 85% 85% at 55% 45%,rgba(0,0,0,0) 45%,rgba(0,0,0,.78) 100%)}
+.paper{position:absolute;background:#e8dcc0;box-shadow:0 18px 30px rgba(0,0,0,.55),0 3px 6px rgba(0,0,0,.4);filter:url(#aged)}
+.paper::after{content:"";position:absolute;inset:0;background:
+  radial-gradient(circle at 78% 22%,rgba(120,70,20,.22),rgba(120,70,20,0) 18%),
+  radial-gradient(circle at 15% 85%,rgba(110,60,20,.18),rgba(110,60,20,0) 22%),
+  linear-gradient(135deg,rgba(255,255,255,.12),rgba(80,50,20,.18));pointer-events:none}
+.folder{background:#c49a5a}
+.tab{position:absolute;top:-38px;right:60px;width:260px;height:44px;background:#c49a5a;border-radius:10px 10px 0 0}
+.label{position:absolute;top:70px;right:70px;left:70px;direction:rtl;text-align:right}
+.label .k{font:28px Typewriter;color:#3b2a18;letter-spacing:2px}
+.label .t{font:96px/1.2 Ruqaa;color:#2a1a0c}
+.card{width:470px;height:270px;padding:26px 30px;direction:rtl;text-align:right;background:#efe6d0;
+  background-image:repeating-linear-gradient(180deg,transparent 0 41px,rgba(70,110,160,.28) 41px 43px);
+  background-position:0 64px}
+.card .d{font:40px/1 Amiri;color:#8b1a14;border-bottom:3px solid rgba(139,26,20,.75);padding-bottom:12px;margin-bottom:12px}
+.card .x{font:34px/1.35 AmiriR;color:#1f160e}
+.card .en{font:22px Typewriter;color:#3a2c1e;direction:ltr;text-align:left;position:absolute;bottom:18px;left:24px;opacity:.75}
+.pin{position:absolute;top:-10px;left:50%;width:26px;height:26px;margin-left:-13px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,#ff6b5e,#a3170f 60%,#5c0a06);box-shadow:0 6px 8px rgba(0,0,0,.6)}
+.stamp{position:absolute;font:64px/1 Ruqaa;color:#b3170f;border:7px double #b3170f;padding:14px 34px 6px;
+  border-radius:10px;opacity:.88;mix-blend-mode:multiply;filter:url(#ink)}
+svg.fx{position:absolute;width:0;height:0}
+#strings,#circle{position:absolute;inset:0;pointer-events:none}
+.grain{position:absolute;inset:-50px;opacity:.16;mix-blend-mode:overlay;filter:url(#grain)}
+.dust{position:absolute;border-radius:50%;background:rgba(255,240,210,.55)}
+.flicker{position:absolute;inset:0;background:#000}

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Pick the next job from Google Drive, render it, push results back. Requires an rclone remote named "gdrive".
+set -euo pipefail
+ROOT="gdrive:${STUDIO_ROOT:?set the STUDIO_ROOT repository variable to your Drive folder name}"
+INBOX="$ROOT/01_Inbox"; RENDERS="$ROOT/02_Renders"; ARCHIVE="$ROOT/99_Archive"
+JOB="${1:-}"
+
+if [ -z "$JOB" ]; then
+  for d in $(rclone lsf "$INBOX" --dirs-only | sed 's#/$##'); do
+    files=$(rclone lsf "$INBOX/$d")
+    if echo "$files" | grep -qx "job.yaml" && ! echo "$files" | grep -qx "_failed.txt"; then
+      if echo "$files" | grep -qx "_processing.txt"; then
+        # a run that was killed (out of memory, timeout) never clears its marker: ignore markers older than 7 h
+        age=$(( $(date +%s) - $(date -d "$(rclone lsjson "$INBOX/$d/_processing.txt" | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["ModTime"])')" +%s) ))
+        [ "$age" -lt 25200 ] && continue
+      fi
+      JOB="$d"; break
+    fi
+  done
+fi
+if [ -z "$JOB" ]; then echo "No new jobs in the Drive inbox."; exit 0; fi
+echo "Job: $JOB"
+echo "started $(date -u) run $GITHUB_RUN_ID" | rclone rcat "$INBOX/$JOB/_processing.txt"
+
+mkdir -p "inbox/$JOB" out
+rclone copy "$INBOX/$JOB" "inbox/$JOB" --exclude "_*.txt" -P --stats-one-line
+# shared brand assets (set plates, etc.), referenced from job.yaml as ../../00_Brand/...
+rclone copy "$ROOT/00_Brand" "00_Brand" -P --stats-one-line 2>/dev/null || echo "No 00_Brand folder in Drive (optional)."
+set +e
+python -m studio_post.run "inbox/$JOB/job.yaml" --work "work/$JOB" 2>&1 | tee run.log
+code=${PIPESTATUS[0]}
+set -e
+
+dest="$RENDERS/$JOB"
+rclone copy "work/$JOB/out" "$dest" -P --stats-one-line || true
+rclone copyto run.log "$dest/run.log"
+rclone deletefile "$INBOX/$JOB/_processing.txt" || true
+if [ "$code" -eq 0 ]; then
+  rclone moveto "$INBOX/$JOB" "$ARCHIVE/$JOB"
+  echo "Done: renders in $STUDIO_ROOT/02_Renders/$JOB"
+else
+  tail -40 run.log | rclone rcat "$INBOX/$JOB/_failed.txt"
+  echo "FAILED (exit $code): see _failed.txt in the inbox folder"; exit "$code"
+fi

@@ -1,0 +1,83 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="inserts.css">
+<style>
+#board{position:absolute;inset:0}
+svg#dg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+svg#dg path{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.lbl{position:absolute;white-space:nowrap;color:#231a10;mix-blend-mode:multiply;text-shadow:0 0 1px rgba(35,26,16,.5)}
+.lbl.red{color:#a3150e}
+.ink-t{fill:#231a10;mix-blend-mode:multiply}
+.red-t{fill:#a3150e;mix-blend-mode:multiply}
+</style></head>
+<body>
+<script>/*DATA*/</script>
+<script src="inserts.js"></script>
+<script src="diagrams.js"></script>
+<script>
+// the layout sheet fills the frame (flat, top-down); the camera creeps in while the editor draws
+Scene.build("layout_sheet.jpeg", { push: 0.035 });
+const VB = V ? [900, 1500] : [1600, 900];
+const board = el("div", "", Scene.stage); board.id = "board";
+board.innerHTML = `<svg id="dg" viewBox="0 0 ${VB[0]} ${VB[1]}" preserveAspectRatio="xMidYMid meet"></svg>`;
+const svg = $("dg"), NS = "http://www.w3.org/2000/svg";
+const K = Math.min(innerWidth / VB[0], innerHeight / VB[1]), OX = (innerWidth - VB[0] * K) / 2, OY = (innerHeight - VB[1] * K) / 2;
+const build = DIAGRAMS[D.diagram];
+if (!build) throw new Error("unknown diagram " + D.diagram);
+const steps = build(VB[0], VB[1], V, D);
+
+function wobble(x1, y1, x2, y2, seed, amp = 3) {     // a hand-drawn line: gentle bow + jitter
+  const r = rng(seed), n = 6, pts = [];
+  const nx = -(y2 - y1), ny = x2 - x1, L = Math.hypot(nx, ny) || 1, bow = (r() - .5) * amp * 2;
+  for (let i = 0; i <= n; i++) {
+    const k = i / n, b = Math.sin(k * Math.PI) * bow + (i && i < n ? (r() - .5) * amp : 0);
+    pts.push([x1 + (x2 - x1) * k + nx / L * b, y1 + (y2 - y1) * k + ny / L * b]);
+  }
+  return "M" + pts.map((p) => p.map((v) => v.toFixed(1)).join(" ")).join(" L");
+}
+function circlePath(cx, cy, r, seed) {               // a slightly imperfect pen circle, overshooting its start
+  const R = rng(seed), n = 40, a0 = R() * 6.28, pts = [];
+  for (let i = 0; i <= n + 3; i++) {
+    const a = a0 + i / n * Math.PI * 2, rr = r * (1 + (R() - .5) * .04);
+    pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]);
+  }
+  return "M" + pts.map((p) => p.map((v) => v.toFixed(1)).join(" ")).join(" L");
+}
+const items = [];
+let seed = 100;
+for (const s of steps) {
+  seed++;
+  if (s.k === "line" || s.k === "arrow" || s.k === "path" || s.k === "circle") {
+    const p = document.createElementNS(NS, "path");
+    let d = s.k === "path" ? s.path : s.k === "circle" ? circlePath(s.c[0], s.c[1], s.r, seed) : wobble(...s.p, seed, s.amp ?? 3);
+    if (s.k === "arrow") {
+      const [x1, y1, x2, y2] = s.p, a = Math.atan2(y2 - y1, x2 - x1), h = s.head || 22;
+      d += ` M${x2 - h * Math.cos(a - .45)} ${y2 - h * Math.sin(a - .45)} L${x2} ${y2} L${x2 - h * Math.cos(a + .45)} ${y2 - h * Math.sin(a + .45)}`;
+    }
+    p.setAttribute("d", d);
+    p.setAttribute("class", s.red ? "pencil" : "penink");
+    p.style.strokeWidth = s.w || (s.red ? 7 : 4.5);
+    svg.appendChild(p); items.push({ s, e: p, draw: true });
+  } else if (s.k === "dot") {
+    const c = document.createElementNS(NS, "circle");
+    c.setAttribute("cx", s.c[0]); c.setAttribute("cy", s.c[1]); c.setAttribute("r", s.r || 12);
+    c.setAttribute("class", s.red ? "red-t" : "ink-t"); svg.appendChild(c); items.push({ s, e: c });
+  } else if (s.k === "text") {
+    // labels are HTML (proper Arabic bidi), positioned in viewBox units; x is the anchor, y the baseline
+    const tx = el("div", s.red ? "lbl red" : "lbl", board);
+    const arabic = /[\u0600-\u06FF]/.test(s.s), a = s.anchor || "middle";
+    tx.style.cssText += `left:${OX + s.x * K}px;top:${OY + s.y * K}px;font:${s.bold === false ? "" : "700 "}${(s.size || 40) * K}px ${s.font || "Amiri"};` +
+      `direction:${arabic ? "rtl" : "ltr"};transform:translate(${a === "start" ? 0 : a === "end" ? -100 : -50}%,-78%)`;
+    tx.textContent = s.s;
+    items.push({ s, e: tx });
+  }
+}
+bindRender((t) => {
+  for (const it of items) {
+    const t0 = it.s.t;
+    if (it.draw) drawPath(it.e, t, t0, it.s.dur || .6);
+    else it.e.style.opacity = clamp((t - t0) / .18);
+  }
+});
+</script>
+</body></html>
