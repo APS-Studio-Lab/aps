@@ -78,7 +78,7 @@ def _quiet_times(video: Path, step_s: float) -> np.ndarray:
     return db < floor + 9  # within ~9 dB of the room tone
 
 
-def shortlist(video: Path, step_s: float = 0.25, keep: int = 24, spacing_s: float = 4.0):
+def shortlist(video: Path, step_s: float = 0.25, keep: int = 36, spacing_s: float = 3.0):
     """Sharp, frontal, green-screen frames with a face, taken only in pauses (mouth at rest); spread out."""
     det = cv2.FaceDetectorYN.create(str(MODEL), "", (W, H), 0.7)
     quiet = _quiet_times(video, step_s)
@@ -187,13 +187,26 @@ def face_ok(crop_bgr: np.ndarray, model: str) -> tuple[bool, str]:
                                                                    "data": base64.b64encode(jpg.tobytes()).decode()}}]}],
             "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}}
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-    try:
-        req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
-        r = json.loads(json.loads(urllib.request.urlopen(req, timeout=90).read())["candidates"][0]["content"]["parts"][0]["text"])
-        good = bool(r.get("eyes_open")) and bool(r.get("looking_at_camera")) and bool(r.get("mouth_natural"))
-        return good, str(r.get("note", ""))
-    except Exception as e:
-        return False, f"check failed: {e}"
+    import time
+    import urllib.error
+    last = ""
+    for attempt in range(4):  # the free tier allows a few requests a minute: wait and retry on 429/5xx
+        try:
+            req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
+            raw = json.loads(urllib.request.urlopen(req, timeout=90).read())
+            r = json.loads(raw["candidates"][0]["content"]["parts"][0]["text"])
+            good = bool(r.get("eyes_open")) and bool(r.get("looking_at_camera")) and bool(r.get("mouth_natural"))
+            return good, json.dumps(r, ensure_ascii=False)
+        except urllib.error.HTTPError as e:
+            last = f"HTTP {e.code}: {e.read()[:200]!r}"
+            if e.code in (429, 500, 503):
+                time.sleep(8 * (attempt + 1))
+                continue
+            break
+        except Exception as e:
+            last = f"{type(e).__name__}: {e}"
+            time.sleep(3)
+    return False, f"check failed: {last}"
 
 
 def cutout(video: Path, t: float, keyer: Keyer) -> tuple[np.ndarray, tuple[float, float, float]]:
@@ -289,8 +302,10 @@ def main(argv=None):
         while k < 3:
             if pi >= len(picks):
                 if not made:
+                    (out_dir / "thumbnails.json").write_text(json.dumps(report, ensure_ascii=False, indent=2),
+                                                             encoding="utf-8")
                     raise StageError("no face passed the checks (eyes open, looking at camera, mouth at rest): "
-                                     "pick moments by hand with thumbnail.at_s")
+                                     "see thumbnails.json, or pick moments by hand with thumbnail.at_s")
                 break
             t = picks[pi]; pi += 1
             try:
