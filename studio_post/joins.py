@@ -188,6 +188,8 @@ def tighten(program_wav: Path, n_frames: int, cuts: list[int], cfg: dict) -> tup
         keep_n = int(keep * FPS)
         # keep a little air on both sides of the cut; drop the middle of the silence
         a0, a1 = lo + keep_n // 2, hi - (keep_n - keep_n // 2)
+        # the dropped span must swallow the cut itself, or the edit shows two jumps a few frames apart
+        a0, a1 = min(a0, c), max(a1, c + 1)
         if a1 > a0:
             drop[a0:a1] = True
             removed += a1 - a0
