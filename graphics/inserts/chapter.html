@@ -1,42 +1,21 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
 <link rel="stylesheet" href="inserts.css">
-<style>
-/* the bound volume lies open; the chapter is printed in old ink on its right page, following the page's curve */
-#page{width:1000px;height:820px;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  direction:rtl;padding:40px 60px}
-#page .k{font:58px Amiri;opacity:.8}
-#page .n{font:700 250px/1 Amiri;margin-top:6px}
-#page .r{width:62%;height:5px;background:currentColor;margin-top:26px;opacity:.8}
-#page .t{font:700 112px/1.28 Amiri;text-align:center;margin-top:30px}
-#page .sub{font:50px/1.5 AmiriR;text-align:center;margin-top:24px}
-@media (orientation:portrait){#page .t{font-size:104px}}
-</style></head>
+</head>
 <body>
 <script>/*DATA*/</script>
 <script src="inserts.js"></script>
 <script>
+// The bound volume lies open with the chapter printed in old ink on its right page. The print is baked into the
+// plate beforehand (studio_post/printplate.py): it follows the page's curve, the paper's relief and its light.
 const POSX = V ? 0.86 : 0.5;
-Scene.build("bound_volume.jpeg", { push: 0.07, panX: V ? 0 : -0.01, panY: 0.01, posX: POSX });
-// right page of the open volume, measured in the plate (1376 x 768): its top edge and its bottom edge,
-// each from the spine to the outer edge. The page arches up from the gutter, so the edges are curves.
-const TOP = [[826, 186], [850, 176], [905, 174], [1010, 197], [1110, 224], [1212, 252]];
-const BOT = [[592, 474], [650, 487], [750, 508], [850, 530], [960, 556], [1075, 584]];
-// printable area: away from the gutter and the edges (narrower in the vertical crop)
-const U0 = V ? 0.30 : 0.13, U1 = V ? 0.92 : 0.90, V0 = 0.10, V1 = 0.86;
-const P = (u, v) => {
-  const uu = U0 + (U1 - U0) * u, vv = V0 + (V1 - V0) * v;
-  const t = along(TOP, uu), b = along(BOT, uu);
-  return plateToScreen(t[0] + (b[0] - t[0]) * vv, t[1] + (b[1] - t[1]) * vv, POSX);
-};
-const content = el("div", "printed", Scene.stage, `
-  <div class="k">${D.kicker || "الفصل"}</div><div class="n">${D.number}</div>
-  <div class="r"></div><div class="t">${D.title}</div>${D.subtitle ? `<div class="sub">${D.subtitle}</div>` : ""}`);
-content.id = "page";
-const print = printOnSurface(Scene.stage, content, 1000, 820, P, 12, 8);
-bindRender((t) => {
-  // the page is already printed; the ink comes up as the camera finds focus
-  print.holder.style.opacity = 0.35 + 0.65 * eOut(seg(t, 0.2, 1.0));
-});
+if (!D.baked) throw new Error("chapter needs a baked plate (rendered by studio_post.inserts)");
+Scene.build(D.baked, { push: 0.07, panX: V ? 0 : -0.01, panY: 0.01, posX: POSX });
+// the same page before the ink is visible, fading away as the camera finds focus
+const clean = el("div", "plate", Scene.cam);
+clean.style.backgroundImage = `url(${PLATES}bound_volume.jpeg)`;
+clean.style.backgroundPosition = `${POSX * 100}% 50%`;
+Scene.cam.insertBefore(clean, Scene.stage);
+bindRender((t) => { clean.style.opacity = 0.65 * (1 - eOut(seg(t, 0.2, 1.0))); });
 </script>
 </body></html>

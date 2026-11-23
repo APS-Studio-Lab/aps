@@ -50,7 +50,8 @@ const Scene = {
       </svg>`);
     this.cam = el("div", "", document.body); this.cam.id = "cam";
     const p = el("div", "plate", this.cam);
-    p.style.backgroundImage = `url(${PLATES}${plate})`;
+    p.style.backgroundImage = `url('${plate.includes(":") ? plate : PLATES + plate}')`;
+    this.plate = p;
     this.posX = opts.posX ?? 0.5;
     p.style.backgroundPosition = `${this.posX * 100}% 50%`;
     this.stage = el("div", "", this.cam); this.stage.style.cssText = "position:absolute;inset:0";
