@@ -11,10 +11,12 @@ mkdir -p "inbox/$JOB"
 rclone copy "$SRC" "inbox/$JOB" --exclude "_*.txt" -q
 rclone copy "$ROOT/00_Brand" "00_Brand" -q 2>/dev/null || true
 set +e
-python -m studio_post.thumbs "inbox/$JOB/job.yaml" --work "work/$JOB" > thumbs.log 2>&1
-code=$?
+# Stage counters are echoed live (no names); the full log goes to Drive, also after a time-out.
+timeout 30m python -u -m studio_post.thumbs "inbox/$JOB/job.yaml" --work "work/$JOB" 2>&1 | tee thumbs.log \
+  | grep --line-buffered -E '^\[[0-9]/4\]|^done|^STOPPED' | sed -u -E 's/^(\[[0-9]\/4\]|done|STOPPED)[^(]*(\([0-9]+s\))?.*/\1 \2/'
+code=${PIPESTATUS[0]}
+[ "$code" = 124 ] && echo "STOPPED (time-out)"
 set -e
-grep -E '^\[[0-9]/4\]|^done|^STOPPED' thumbs.log | sed -E 's/:.*//' || true
 rclone copy "work/$JOB/out/thumbnails" "$ROOT/02_Renders/$JOB/thumbnails" -q || true
 rclone copyto thumbs.log "$ROOT/02_Renders/$JOB/thumbnails/thumbs.log" -q || true
 exit $code

@@ -173,40 +173,64 @@ def rank_with_gemini(cands: list[dict], model: str, report: dict) -> list[int]:
         return sorted(range(len(cands)), key=lambda i: -cands[i]["q"])
 
 
-def face_ok(crop_bgr: np.ndarray, model: str) -> tuple[bool, str]:
-    """Final check of one picked face at full resolution: eyes open, looking at camera, mouth natural."""
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not key:
-        return True, "not checked (no key)"
-    ok, jpg = cv2.imencode(".jpg", crop_bgr, [cv2.IMWRITE_JPEG_QUALITY, 90])
-    q = ("Check this face for a YouTube thumbnail. Answer JSON {\"eyes_open\": bool, \"looking_at_camera\": bool, "
-         "\"mouth_natural\": bool, \"note\": short}. eyes_open is false if the eyes are closed, half-closed or "
-         "mid-blink. mouth_natural is false if the mouth is open mid-word or in an odd shape; a closed mouth or a "
-         "natural smile is true.")
-    body = {"contents": [{"parts": [{"text": q}, {"inline_data": {"mime_type": "image/jpeg",
-                                                                   "data": base64.b64encode(jpg.tobytes()).decode()}}]}],
-            "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}}
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+def _gemini_json(parts: list, model: str, timeout: int = 120, tries: int = 3) -> dict:
+    """One Gemini call returning JSON; waits and retries on 429/5xx. Raises with the last error."""
     import time
     import urllib.error
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    body = {"contents": [{"parts": parts}],
+            "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}}
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
     last = ""
-    for attempt in range(4):  # the free tier allows a few requests a minute: wait and retry on 429/5xx
+    for attempt in range(tries):
         try:
             req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
-            raw = json.loads(urllib.request.urlopen(req, timeout=90).read())
-            r = json.loads(raw["candidates"][0]["content"]["parts"][0]["text"])
-            good = bool(r.get("eyes_open")) and bool(r.get("looking_at_camera")) and bool(r.get("mouth_natural"))
-            return good, json.dumps(r, ensure_ascii=False)
+            raw = json.loads(urllib.request.urlopen(req, timeout=timeout).read())
+            return json.loads(raw["candidates"][0]["content"]["parts"][0]["text"])
         except urllib.error.HTTPError as e:
-            last = f"HTTP {e.code}: {e.read()[:200]!r}"
-            if e.code in (429, 500, 503):
-                time.sleep(8 * (attempt + 1))
-                continue
-            break
+            last = f"HTTP {e.code}: {e.read()[:300]!r}"
+            if e.code not in (429, 500, 503):
+                break
         except Exception as e:
             last = f"{type(e).__name__}: {e}"
-            time.sleep(3)
-    return False, f"check failed: {last}"
+        time.sleep(10 * (attempt + 1))
+    raise RuntimeError(last)
+
+
+def faces_ok(crops: list[np.ndarray], model: str) -> list[tuple[bool, str]]:
+    """Final check of the picked faces at full resolution, all in ONE request (one numbered sheet):
+    eyes open, looking at camera, mouth natural. Returns (good, verdict) per crop."""
+    if not os.environ.get("GEMINI_API_KEY", "").strip():
+        return [(True, "not checked (no key)")] * len(crops)
+    tiles = [cv2.resize(c, (384, 384), interpolation=cv2.INTER_AREA) for c in crops]
+    cols = 3
+    rows = [np.hstack(tiles[i:i + cols] + [np.zeros_like(tiles[0])] * (cols - len(tiles[i:i + cols])))
+            for i in range(0, len(tiles), cols)]
+    sheet = np.vstack(rows)
+    for i in range(len(tiles)):
+        cv2.putText(sheet, str(i), ((i % cols) * 384 + 10, (i // cols) * 384 + 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2,
+                    (0, 255, 255), 3)
+    _, jpg = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    q = ("These numbered tiles are candidate faces for a YouTube thumbnail. For EVERY tile answer: eyes_open (false "
+         "if closed, half-closed or mid-blink), looking_at_camera (false if looking away or down), mouth_natural "
+         "(false if open mid-word or in an odd shape; closed or a natural smile is true). Return JSON "
+         "{\"tiles\": [{\"i\": int, \"eyes_open\": bool, \"looking_at_camera\": bool, \"mouth_natural\": bool, "
+         "\"note\": short}]} with one entry per tile.")
+    try:
+        r = _gemini_json([{"text": q}, {"inline_data": {"mime_type": "image/jpeg",
+                                                         "data": base64.b64encode(jpg.tobytes()).decode()}}], model)
+    except Exception as e:
+        return [(False, f"check failed: {e}")] * len(crops)
+    by = {int(t.get("i", -1)): t for t in r.get("tiles", [])}
+    out = []
+    for i in range(len(crops)):
+        t = by.get(i)
+        if t is None:
+            out.append((False, "no verdict returned"))
+            continue
+        good = bool(t.get("eyes_open")) and bool(t.get("looking_at_camera")) and bool(t.get("mouth_natural"))
+        out.append((good, json.dumps(t, ensure_ascii=False)))
+    return out
 
 
 def cutout(video: Path, t: float, keyer: Keyer) -> tuple[np.ndarray, tuple[float, float, float]]:
@@ -253,6 +277,12 @@ def grade_scene(img: np.ndarray) -> np.ndarray:
 
 
 def main(argv=None):
+    import time
+    t0 = time.time()
+    _p = print
+
+    def print(*a, **k):  # stage lines carry elapsed seconds
+        _p(*a, f"({time.time() - t0:.0f}s)", **k)
     ap = argparse.ArgumentParser()
     ap.add_argument("job")
     ap.add_argument("--work", default=None)
@@ -295,30 +325,34 @@ def main(argv=None):
                     0.55, (0, 255, 255), 2)
     cv2.imwrite(str(out_dir / "faces_shortlist.jpg"), sheet, [cv2.IMWRITE_JPEG_QUALITY, 88])
 
-    print("[3/4] cut out and grade", flush=True)
+    print("[3/4] cut out and check faces", flush=True)
+    # Cut out the best picks (at most 12), then check them all in one Gemini request.
+    pool = []
+    for t in picks:
+        if len(pool) >= (3 if tc.get("at_s") else 12):
+            break
+        try:
+            pool.append((t,) + cutout(video, t, keyer))
+        except StageError as e:
+            report.setdefault("cutout_skipped", []).append(str(e))
+    if not tc.get("at_s"):
+        crops = []
+        for t, host, (fx, fy, fw) in pool:
+            s = int(fw * 1.8)
+            x0, y0 = int(max(fx - s / 2, 0)), int(max(fy - s * 0.45, 0))
+            crops.append(np.ascontiguousarray(host[y0:y0 + s, x0:x0 + s, :3]))
+        verdicts = faces_ok(crops, gemini_model) if crops else []
+        report["face_checks"] = [{"t": round(p[0], 2), "ok": ok, "note": note} for p, (ok, note) in zip(pool, verdicts)]
+        pool = [p for p, (ok, _) in zip(pool, verdicts) if ok]
+    if not pool:
+        (out_dir / "thumbnails.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        raise StageError("no face passed the checks (eyes open, looking at camera, mouth at rest): "
+                         "see thumbnails.json, or pick moments by hand with thumbnail.at_s")
+
+    print("[4/4] layout", flush=True)
     made = []
     with Browser() as br:
-        k, pi = 0, 0
-        while k < 3:
-            if pi >= len(picks):
-                if not made:
-                    (out_dir / "thumbnails.json").write_text(json.dumps(report, ensure_ascii=False, indent=2),
-                                                             encoding="utf-8")
-                    raise StageError("no face passed the checks (eyes open, looking at camera, mouth at rest): "
-                                     "see thumbnails.json, or pick moments by hand with thumbnail.at_s")
-                break
-            t = picks[pi]; pi += 1
-            try:
-                host, (fx, fy, fw) = cutout(video, t, keyer)
-            except StageError:
-                continue
-            if not tc.get("at_s"):
-                s = int(fw * 1.8)
-                x0, y0 = int(max(fx - s / 2, 0)), int(max(fy - s * 0.45, 0))
-                ok, note = face_ok(np.ascontiguousarray(host[y0:y0 + s, x0:x0 + s, :3]), gemini_model)
-                report.setdefault("face_checks", []).append({"t": round(t, 2), "ok": ok, "note": note})
-                if not ok:
-                    continue
+        for k, (t, host, (fx, fy, fw)) in enumerate(pool[:3]):
             hp = work / f"thumb_host_{k}.png"
             cv2.imwrite(str(hp), host)
             # Thumb C framing: a big face on the left third. Face width 255 px, centre x 285, eyes at y 255.
@@ -330,7 +364,6 @@ def main(argv=None):
                 raise StageError(f"cannot read scene {scenes[k % len(scenes)]}")
             sp = work / f"thumb_scene_{k}.jpg"
             cv2.imwrite(str(sp), grade_scene(sc), [cv2.IMWRITE_JPEG_QUALITY, 94])
-            print("[4/4] layout", flush=True) if k == 0 else None
             tag = tc.get("tag", "")
             html = fill("thumbnail.html", SCENE=sp.as_uri(), HOST=hp.as_uri(), HOST_CSS=host_css,
                         TAG_HTML=f'<div class="tag">{tag}</div>' if tag else "",
@@ -338,7 +371,6 @@ def main(argv=None):
                         BRAND=brandkit.name())
             png = br.render_html(html, out_dir / f"thumbnail_{k + 1}.png", 1280, 720, workdir=work)
             made.append({"file": png.name, "presenter_at_s": round(t, 1), "scene": scenes[k % len(scenes)].name})
-            k += 1
     report["thumbnails"] = made
     (out_dir / "thumbnails.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print("done", flush=True)
