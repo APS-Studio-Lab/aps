@@ -60,16 +60,36 @@ def _green(f: np.ndarray) -> float:
     return float(((hsv[..., 0] > 35) & (hsv[..., 0] < 90) & (hsv[..., 1] > 60) & (hsv[..., 2] > 40)).mean())
 
 
-def shortlist(video: Path, step_s: float = 0.5, keep: int = 24, spacing_s: float = 4.0):
-    """Sharp, frontal, green-screen frames with a face; spread across the episode."""
+def _quiet_times(video: Path, step_s: float) -> np.ndarray:
+    """Per sample time: True when the voice is silent (between sentences), so the mouth is at rest."""
+    from .ingest import _pcm
+    rate = 16000
+    a = _pcm(video, rate)
+    hop = int(rate * step_s)
+    n = len(a) // hop
+    win = int(rate * 0.12)
+    db = []
+    for i in range(n):
+        c = i * hop
+        seg = a[max(0, c - win):c + win]
+        db.append(20 * np.log10(np.sqrt(np.mean(seg.astype(np.float64) ** 2)) + 1e-9))
+    db = np.array(db)
+    floor = np.percentile(db, 10)
+    return db < floor + 9  # within ~9 dB of the room tone
+
+
+def shortlist(video: Path, step_s: float = 0.25, keep: int = 24, spacing_s: float = 4.0):
+    """Sharp, frontal, green-screen frames with a face, taken only in pauses (mouth at rest); spread out."""
     det = cv2.FaceDetectorYN.create(str(MODEL), "", (W, H), 0.7)
+    quiet = _quiet_times(video, step_s)
     cands, samples = [], []
     for i, f in enumerate(_decode(video, 1 / step_s, W, H)):
         t = i * step_s
         if _green(f) < 0.25:
             continue
-        if len(samples) < 40 and i % 20 == 0:
+        if len(samples) < 40 and i % 40 == 0:
             samples.append(f.copy())
+        at_rest = bool(i < len(quiet) and quiet[i])
         _, faces = det.detect(f)
         if faces is None or not len(faces):
             continue
@@ -86,7 +106,7 @@ def shortlist(video: Path, step_s: float = 0.5, keep: int = 24, spacing_s: float
         if crop.size == 0:
             continue
         sharp = cv2.Laplacian(crop, cv2.CV_64F).var()
-        cands.append({"t": t, "box": [float(v) for v in (x, y, w, h)], "score": float(fc[14]),
+        cands.append({"t": t, "rest": at_rest, "box": [float(v) for v in (x, y, w, h)], "score": float(fc[14]),
                       "frontal": float(frontal), "sharp": float(sharp), "thumb": f})
     if not cands:
         raise StageError("no usable face frames on green screen found for the thumbnail")
@@ -94,7 +114,7 @@ def shortlist(video: Path, step_s: float = 0.5, keep: int = 24, spacing_s: float
         samples = [c["thumb"] for c in cands[:: max(1, len(cands) // 12)]]
     sh = np.array([c["sharp"] for c in cands]); sh = sh / (np.percentile(sh, 90) + 1e-6)
     for c, s in zip(cands, sh):
-        c["q"] = 0.55 * min(s, 1.2) + 0.45 * max(c["frontal"], 0)
+        c["q"] = 0.55 * min(s, 1.2) + 0.45 * max(c["frontal"], 0) + (0.6 if c["rest"] else 0)  # pauses first
     picked = []
     for c in sorted(cands, key=lambda c: -c["q"]):
         if all(abs(c["t"] - p["t"]) >= spacing_s for p in picked):
@@ -128,9 +148,11 @@ def rank_with_gemini(cands: list[dict], model: str, report: dict) -> list[int]:
                     (0, 255, 255), 2)
     ok, jpg = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, 88])
     prompt = ("These numbered tiles are frames of one presenter of a business documentary. Pick the faces that "
-              "would make the strongest YouTube thumbnail: a clear, natural, readable emotion (surprise, intrigue, "
-              "conviction, a knowing smile), eyes open and looking at the camera, mouth not caught mid-word in an "
-              "awkward shape, sharp. Return JSON: {\"best\": [indexes, best first, up to 6], \"why\": short reason}.")
+              "would make the strongest YouTube thumbnail. Hard requirements, reject any tile that fails one: both "
+              "eyes fully open (not closed, not half-closed, not mid-blink); looking straight into the camera (not "
+              "away, not down); mouth closed or in a natural smile (never open mid-word, never an odd shape); sharp. "
+              "Among those, prefer a clear, readable emotion: intrigue, conviction, a knowing smile, quiet surprise. "
+              "Return JSON: {\"best\": [indexes, best first, up to 8], \"why\": short reason}.")
     body = {"contents": [{"parts": [{"text": prompt},
                                     {"inline_data": {"mime_type": "image/jpeg",
                                                      "data": base64.b64encode(jpg.tobytes()).decode()}}]}],
@@ -149,6 +171,29 @@ def rank_with_gemini(cands: list[dict], model: str, report: dict) -> list[int]:
     except Exception as e:  # the ranking is a preference, not data: fall back to the measured quality, loudly
         report["ranking"] = f"heuristic (Gemini failed: {e})"
         return sorted(range(len(cands)), key=lambda i: -cands[i]["q"])
+
+
+def face_ok(crop_bgr: np.ndarray, model: str) -> tuple[bool, str]:
+    """Final check of one picked face at full resolution: eyes open, looking at camera, mouth natural."""
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not key:
+        return True, "not checked (no key)"
+    ok, jpg = cv2.imencode(".jpg", crop_bgr, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    q = ("Check this face for a YouTube thumbnail. Answer JSON {\"eyes_open\": bool, \"looking_at_camera\": bool, "
+         "\"mouth_natural\": bool, \"note\": short}. eyes_open is false if the eyes are closed, half-closed or "
+         "mid-blink. mouth_natural is false if the mouth is open mid-word or in an odd shape; a closed mouth or a "
+         "natural smile is true.")
+    body = {"contents": [{"parts": [{"text": q}, {"inline_data": {"mime_type": "image/jpeg",
+                                                                   "data": base64.b64encode(jpg.tobytes()).decode()}}]}],
+            "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}}
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    try:
+        req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
+        r = json.loads(json.loads(urllib.request.urlopen(req, timeout=90).read())["candidates"][0]["content"]["parts"][0]["text"])
+        good = bool(r.get("eyes_open")) and bool(r.get("looking_at_camera")) and bool(r.get("mouth_natural"))
+        return good, str(r.get("note", ""))
+    except Exception as e:
+        return False, f"check failed: {e}"
 
 
 def cutout(video: Path, t: float, keyer: Keyer) -> tuple[np.ndarray, tuple[float, float, float]]:
@@ -218,6 +263,7 @@ def main(argv=None):
         raise StageError("thumbnail.scenes is missing: generate them with docs/prompts/thumbnails.md")
     report = {}
 
+    gemini_model = cfg.get("transcript", {}).get("gemini_model", "gemini-3.5-flash")
     print("[1/4] shortlist faces", flush=True)
     cands, samples = shortlist(video)
     keyer = Keyer(samples)
@@ -226,7 +272,7 @@ def main(argv=None):
         order, picks = [], [float(x) for x in tc["at_s"]]
         report["ranking"] = "given by job (at_s)"
     else:
-        order = rank_with_gemini(cands, cfg.get("transcript", {}).get("gemini_model", "gemini-3.5-flash"), report)
+        order = rank_with_gemini(cands, gemini_model, report)
         picks = [cands[i]["t"] for i in order]
     sheet = np.vstack([np.hstack([_crop_face(c, 180) for c in cands[i:i + 8]] +
                                  [np.zeros((180, 180, 3), np.uint8)] * (8 - len(cands[i:i + 8])))
@@ -243,13 +289,21 @@ def main(argv=None):
         while k < 3:
             if pi >= len(picks):
                 if not made:
-                    raise StageError("no candidate frame passed the full-resolution face check")
-                pi = 0  # reuse the good ones
+                    raise StageError("no face passed the checks (eyes open, looking at camera, mouth at rest): "
+                                     "pick moments by hand with thumbnail.at_s")
+                break
             t = picks[pi]; pi += 1
             try:
                 host, (fx, fy, fw) = cutout(video, t, keyer)
             except StageError:
                 continue
+            if not tc.get("at_s"):
+                s = int(fw * 1.8)
+                x0, y0 = int(max(fx - s / 2, 0)), int(max(fy - s * 0.45, 0))
+                ok, note = face_ok(np.ascontiguousarray(host[y0:y0 + s, x0:x0 + s, :3]), gemini_model)
+                report.setdefault("face_checks", []).append({"t": round(t, 2), "ok": ok, "note": note})
+                if not ok:
+                    continue
             hp = work / f"thumb_host_{k}.png"
             cv2.imwrite(str(hp), host)
             # Thumb C framing: a big face on the left third. Face width 255 px, centre x 285, eyes at y 255.
