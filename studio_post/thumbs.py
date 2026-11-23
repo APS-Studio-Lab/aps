@@ -279,7 +279,8 @@ def grade_scene(img: np.ndarray) -> np.ndarray:
 def main(argv=None):
     import time
     t0 = time.time()
-    _p = print
+    import builtins
+    _p = builtins.print
 
     def print(*a, **k):  # stage lines carry elapsed seconds
         _p(*a, f"({time.time() - t0:.0f}s)", **k)
