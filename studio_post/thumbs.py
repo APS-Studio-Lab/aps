@@ -39,11 +39,11 @@ def _decode(video: Path, fps: float, w: int, h: int, start: float | None = None,
     info = ffprobe(video)
     vs = next(s for s in info["streams"] if s["codec_type"] == "video")
     hdr = vs.get("color_transfer") in ("arib-std-b67", "smpte2084")
-    vf = f"fps={fps},"
+    # scale first: tone-mapping a 4K float frame is the slow part, and detection only needs the small frame
+    vf = f"fps={fps},scale={w}:{h}"
     if hdr:
-        vf += "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p,"
-    vf += f"scale={w}:{h}"
-    cmd = ["ffmpeg", "-v", "error"] + (["-ss", f"{start:.3f}"] if start is not None else []) + ["-i", str(video)]
+        vf += ",zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+    cmd = ["ffmpeg", "-v", "error", "-threads", "0"] + (["-ss", f"{start:.3f}"] if start is not None else []) + ["-i", str(video)]
     cmd += (["-frames:v", str(frames)] if frames else []) + ["-vf", vf, "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     n = w * h * 3
