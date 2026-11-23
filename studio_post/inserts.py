@@ -109,7 +109,7 @@ def render(browser, kind: str, data: dict, seconds: float, work: Path, tag: str)
     outs = []
     for vertical, (w, h) in ((False, (1920, 1080)), (True, (1080, 1920))):
         d = dict(data)
-        if kind in ("chapter", "ident"):
+        if kind == "chapter":
             d["baked"] = _bake(browser, kind, data, work, tag, vertical)
         page = _page(kind, d, work, f"{tag}_{'v' if vertical else 'h'}")
         outs.append(browser.capture_animation(page, work / f"insert_{tag}_{'v' if vertical else 'h'}.mp4", w, h, seconds))

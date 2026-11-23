@@ -13,7 +13,7 @@
 <script src="inserts.js"></script>
 <script>
 // Shot 1: the archive aisle in the dark; the bulb flickers on and the camera walks in.
-// Shot 2: the press; the show's name is printed onto the blank sheet coming out of the rollers.
+// Shot 2: the press running (atmosphere). Shot 3: the printed sheet lands on the table.
 Scene.build("archive_hall.jpeg", { push: 0.0 });
 const s1 = Scene.cam.querySelector(".plate");
 const shot2 = el("div", "shot", Scene.cam);
@@ -22,18 +22,18 @@ p2.style.backgroundPosition = V ? "52% 50%" : "50% 50%";
 const bulb = el("div", "", Scene.cam); bulb.id = "bulb";
 bulb.style.background = "radial-gradient(circle at 50% 30%,rgba(255,200,120,.55),rgba(255,160,60,.10) 22%,rgba(0,0,0,0) 45%)";
 const dark = el("div", "", document.body); dark.id = "dark";
-const CUT = D.cut || 2.7;
+const CUT = D.cut || 2.3;
 
-// the printed sheet: baked into a copy of the press plate (studio_post/printplate.py), revealed row by row
-// as the paper clears the inked roller
-if (!D.baked) throw new Error("ident needs a baked plate (rendered by studio_post.inserts)");
-const p2b = el("div", "plate", shot2);
-p2b.style.backgroundImage = `url('${D.baked}')`;
-p2b.style.backgroundPosition = p2.style.backgroundPosition;
-function plateYtoPct(py) {           // plate row -> % of the .plate element's height (cover, inset -4%)
-  const bw = innerWidth * 1.08, bh = innerHeight * 1.08, sc = Math.max(bw / 1376, bh / 768);
-  return ((bh - 768 * sc) / 2 + py * sc) / bh * 100;
-}
+// Shot 3: the freshly printed sheet lands on the editor's table, the show's name pressed into the paper
+const CUT2 = D.cut2 || 3.9;
+const shot3 = el("div", "shot", Scene.cam);
+const p3 = el("div", "plate", shot3); p3.style.backgroundImage = `url(${PLATES}layout_table.jpeg)`;
+const W3 = V ? innerWidth * 0.86 : innerWidth * 0.40, H3 = W3 * (V ? 1.05 : 0.78);
+const sheet = makeSheet(shot3, { w: W3, h: H3, x: (innerWidth - W3) / 2, y: (innerHeight - H3) / 2,
+                                  rot: V ? -1.5 : -2.4, seed: 41, rough: .45 });
+sheet.sheet.innerHTML = `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+  <img src="${D.logo}" style="width:68%;filter:brightness(0) url(#oldink);opacity:.9;mix-blend-mode:multiply">
+  ${D.episode ? `<div class="ink" style="font:700 calc(var(--u)*46) Amiri;margin-top:calc(var(--u)*24)">${D.episode}</div>` : ""}</div>`;
 bindRender((t) => {
   // shot 1: flicker on, then walk in
   const on = t < .35 ? 0 : t < .5 ? .7 : t < .6 ? .15 : t < .75 ? .9 : t < .82 ? .4 : 1;
@@ -45,12 +45,14 @@ bindRender((t) => {
   shot2.style.opacity = in2 ? 1 : 0; bulb.style.display = in2 ? "none" : "block";
   const f = eOut(seg(t, CUT, CUT + 2.2));
   p2.style.transform = `scale(${1.02 + 0.05 * seg(t, CUT, DUR)})`;
-  // the print appears as the sheet clears the inked roller: top to bottom
-  const edge = plateYtoPct(380 + 400 * eOut(seg(t, CUT + .2, CUT + 1.7)));
-  p2b.style.webkitMaskImage = p2b.style.maskImage = `linear-gradient(180deg,#000 ${edge - 3}%,transparent ${edge + 3}%)`;
-  p2b.style.transform = p2.style.transform;
+  // shot 3
+  const in3 = t >= CUT2;
+  shot3.style.opacity = in3 ? 1 : 0;
+  placeSheet(sheet, t, CUT2 + 0.05, { from: V ? [0, -0.6] : [0, -0.55], dur: .7, startRot: 6 });
+  p3.style.transform = `scale(${1.02 + 0.04 * seg(t, CUT2, DUR)})`;
   // fade from black at the start, short dip at the cut, fade at the end
-  const fade = Math.max(1 - seg(t, 0, .3), t > CUT - .08 && t < CUT + .12 ? .85 : 0, seg(t, DUR - .4, DUR));
+  const dip = (c) => (t > c - .08 && t < c + .12 ? .85 : 0);
+  const fade = Math.max(1 - seg(t, 0, .3), dip(CUT), dip(CUT2), seg(t, DUR - .4, DUR));
   dark.style.opacity = fade;
 });
 </script>
