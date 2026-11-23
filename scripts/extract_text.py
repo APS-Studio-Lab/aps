@@ -13,8 +13,11 @@ ext = src.suffix.lower()
 
 def whisper(p: Path) -> str:
     from faster_whisper import WhisperModel
+    import numpy as np
+    pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", str(p), "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
+                         capture_output=True, check=True).stdout
     m = WhisperModel("large-v3", device="cpu", compute_type="int8")
-    segs, _ = m.transcribe(str(p), language="ar", vad_filter=True, condition_on_previous_text=False)
+    segs, _ = m.transcribe(np.frombuffer(pcm, np.float32), language="ar", vad_filter=True, condition_on_previous_text=False)
     return "\n".join(f"[{s.start:7.1f}] {s.text.strip()}" for s in segs)
 
 

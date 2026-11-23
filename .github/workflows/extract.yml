@@ -36,7 +36,9 @@ jobs:
             rclone backend copyid gdrive: "$id" "in/$n/" -q
             f=$(ls "in/$n" | head -1)
             echo "::add-mask::$f"
-            python3 scripts/extract_text.py "in/$n/$f" "out/${id}.txt"
-            echo "item $n done"
+            if python3 scripts/extract_text.py "in/$n/$f" "out/${id}.txt" 2> "out/${id}.err"; then
+              rm -f "out/${id}.err"; echo "item $n done"
+            else echo "item $n failed"; fi
+            rclone copy out "gdrive:$STUDIO_ROOT/02_Renders/_extract" -q
           done
           rclone copy out "gdrive:$STUDIO_ROOT/02_Renders/_extract" -q
