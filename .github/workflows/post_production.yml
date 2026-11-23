@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  STUDIO_ROOT: ${{ vars.STUDIO_ROOT || secrets.STUDIO_ROOT }}   # Drive folder name (Variables tab, or a secret)
+  STUDIO_ROOT: ${{ secrets.STUDIO_ROOT || vars.STUDIO_ROOT }}   # Drive folder name; keep it a secret so public logs mask it
 
 jobs:
   render:

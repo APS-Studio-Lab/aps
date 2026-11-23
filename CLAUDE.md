@@ -2,7 +2,8 @@
 
 This repository is the studio: its agents, its render pipeline and its workflows. It is brand-neutral and public.
 Media never lives here. Raw footage, renders, archives and the channel's brand kit live in Google Drive, in the
-studio folder named by the `STUDIO_ROOT` repository variable.
+studio folder named by the `STUDIO_ROOT` repository secret. Actions logs are public: never print
+brand names, Drive paths, episode titles or file names to them (the full log goes to Drive).
 
 ## Before any editorial, script, design or publishing work
 Read the channel's rules in the private brand kit: Drive `<STUDIO_ROOT>/00_Brand/brand.md` (Google Drive connector).

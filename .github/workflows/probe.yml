@@ -10,7 +10,7 @@ on:
         required: false
         default: ""
 env:
-  STUDIO_ROOT: ${{ vars.STUDIO_ROOT || secrets.STUDIO_ROOT }}   # Drive folder name (Variables tab, or a secret)
+  STUDIO_ROOT: ${{ secrets.STUDIO_ROOT || vars.STUDIO_ROOT }}   # Drive folder name; keep it a secret so public logs mask it
 
 jobs:
   probe:
@@ -27,6 +27,7 @@ jobs:
         run: |
           set -e
           rclone copyto "gdrive:$STUDIO_ROOT/$P" in.media
+          case "$P" in *.jpg|*.jpeg|*.png|*.webp) ffprobe -v error -show_entries stream=width,height -of default=nw=1 in.media; exit 0;; esac
           ffprobe -v error -show_entries format=duration,size,bit_rate:stream=index,codec_type,codec_name,width,height,r_frame_rate,color_transfer,color_primaries,channels,sample_rate -of default=nw=1 in.media
           D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 in.media)
           mkdir frames

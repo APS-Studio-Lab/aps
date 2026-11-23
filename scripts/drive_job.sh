@@ -19,26 +19,31 @@ if [ -z "$JOB" ]; then
   done
 fi
 if [ -z "$JOB" ]; then echo "No new jobs in the Drive inbox."; exit 0; fi
-echo "Job: $JOB"
+echo "::add-mask::$JOB"   # public logs: never show the job/episode name
+echo "Job picked up."
 echo "started $(date -u) run $GITHUB_RUN_ID" | rclone rcat "$INBOX/$JOB/_processing.txt"
 
 mkdir -p "inbox/$JOB" out
-rclone copy "$INBOX/$JOB" "inbox/$JOB" --exclude "_*.txt" -P --stats-one-line
+rclone copy "$INBOX/$JOB" "inbox/$JOB" --exclude "_*.txt" -q
 # shared brand assets (set plates, etc.), referenced from job.yaml as ../../00_Brand/...
-rclone copy "$ROOT/00_Brand" "00_Brand" -P --stats-one-line 2>/dev/null || echo "No 00_Brand folder in Drive (optional)."
+rclone copy "$ROOT/00_Brand" "00_Brand" -q 2>/dev/null || echo "No brand kit in Drive (optional)."
 set +e
-python -m studio_post.run "inbox/$JOB/job.yaml" --work "work/$JOB" 2>&1 | tee run.log
-code=${PIPESTATUS[0]}
+# the full log goes to Drive (private); the public Actions log only shows the stage counters
+python -m studio_post.run "inbox/$JOB/job.yaml" --work "work/$JOB" > run.log 2>&1 &
+pid=$!
+tail -n +1 -f run.log --pid=$pid | grep --line-buffered -E '^\[[0-9]/7\]|^STOPPED' | sed -E 's/:.*//' || true
+wait $pid
+code=$?
 set -e
 
 dest="$RENDERS/$JOB"
-rclone copy "work/$JOB/out" "$dest" -P --stats-one-line || true
+rclone copy "work/$JOB/out" "$dest" -q || true
 rclone copyto run.log "$dest/run.log"
 rclone deletefile "$INBOX/$JOB/_processing.txt" || true
 if [ "$code" -eq 0 ]; then
   rclone moveto "$INBOX/$JOB" "$ARCHIVE/$JOB"
-  echo "Done: renders in $STUDIO_ROOT/02_Renders/$JOB"
+  echo "Done: renders are in 02_Renders."
 else
   tail -40 run.log | rclone rcat "$INBOX/$JOB/_failed.txt"
-  echo "FAILED (exit $code): see _failed.txt in the inbox folder"; exit "$code"
+  echo "FAILED (exit $code): see _failed.txt in the job's inbox folder (Drive)"; exit "$code"
 fi

@@ -7,7 +7,7 @@ The post-production line runs on GitHub Actions and reads and writes your person
 In your personal Google Drive, create:
 
 ```
-<Your Studio>/          ← any name; put it in the STUDIO_ROOT variable (step 3c)
+<Your Studio>/          ← any name; put it in the STUDIO_ROOT secret (step 3c)
 ├── 00_Brand/      ← brand kit: brand.yaml, brand.md, logo, sets/, archive/
 ├── 01_Inbox/      ← one folder per job: footage + job.yaml
 ├── 02_Renders/    ← finished master, short, report, transcript
@@ -43,8 +43,9 @@ Without it, the pipeline uses Whisper, which is slower and weaker on Egyptian Ar
 
 ## 3c. Tell the workflow your Drive folder
 
-Settings → Secrets and variables → Actions → **Variables** tab → New repository variable:
-`STUDIO_ROOT` = the exact name of your Drive studio folder. Variables are not shown publicly.
+Settings → Secrets and variables → Actions → **Secrets** tab → New repository secret:
+`STUDIO_ROOT` = the exact name of your Drive studio folder. Use a secret, not a variable: on a public repository
+the Actions logs are public, and only secrets are masked in them.
 
 ## 4. Run a job
 
