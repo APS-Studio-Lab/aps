@@ -50,7 +50,13 @@ output:
 # in the report as places to cover with an insert.
 joins:
   enabled: true
-  punch_in: 1.18        # close framing = 18% punch-in
+  punch_in: 1.06        # small punch-in, only at a cut where the body really jumps
+  min_gap_s: 12         # never two framing changes closer than this
+  jump_threshold: 0.15  # how big a body jump must be (share of face width) to earn a punch-in
   min_segment_s: 0.8    # shorter pieces are flagged in the report
 # edit:
-#   mode: keep          # the video is already cut by hand (e.g. a Filmora export): keep every frame
+#   mode: keep          # the video is already cut by hand (e.g. a Filmora export): keep its cuts
+#   tighten: true       # shorten dead pauses at those cuts so sentences run on into a paragraph
+#   max_pause_s: 0.35   # pauses longer than this at a cut are shortened ...
+#   keep_pause_s: 0.16  # ... to this
+# preview: {start_s: 0, end_s: 60}   # render only this window of the source, for a quick look

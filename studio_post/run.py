@@ -163,9 +163,21 @@ def main(argv=None):
     print("[4/7] edit", flush=True)
     edit_cfg = cfg.get("edit", {})
     pretrimmed = edit_cfg.get("mode") == "keep"
-    if pretrimmed:  # already cut by hand (e.g. a Filmora export): keep every frame, only treat the joins
+    scan = None
+    if pretrimmed:  # already cut by hand (e.g. a Filmora export): keep the cuts, only tighten the pauses at them
         takes = [(0, n_frames - 1)]
         report["edit"] = {"mode": "keep (pre-edited export)", "seconds": round(n_frames / FPS, 1)}
+        if edit_cfg.get("tighten", True):
+            scan = joins.frame_scan(mezz)
+            cuts = joins.source_cuts(scan[0], track)
+            takes, removed = joins.tighten(program, n_frames, cuts, edit_cfg)
+            report["edit"].update({"pauses_tightened_s": round(removed, 1),
+                                   "seconds": round(sum(b - a + 1 for a, b in takes) / FPS, 1)})
+    pv = cfg.get("preview")
+    if pv:  # render only a window of the source, for a quick look at the edit style
+        f0, f1 = int(float(pv.get("start_s", 0)) * FPS), int(float(pv.get("end_s", 60)) * FPS)
+        takes = [(max(a, f0), min(b, f1)) for a, b in takes if b >= f0 and a <= f1]
+        report.setdefault("edit", {})["preview"] = f"{pv.get('start_s', 0)}–{pv.get('end_s', 60)} s of the source"
     else:
         takes = edit.speech_frames(program, edit_cfg, n_frames, track, report)
     _, master_wav = audio.cut_and_master(program, takes, work)
@@ -217,7 +229,7 @@ def main(argv=None):
     framing_path = None
     screen_path = None
     if j_cfg.get("enabled", True):
-        diff, green = joins.frame_scan(mezz)
+        diff, green = scan or joins.frame_scan(mezz)
         screen = joins.screen_frames(green)
         screen_path = work / "screen.npy"
         np.save(screen_path, screen)
