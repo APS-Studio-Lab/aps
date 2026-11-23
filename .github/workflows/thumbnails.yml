@@ -6,6 +6,10 @@ on:
       job:
         description: "Episode folder name in Drive (inbox or archive)"
         required: true
+      at_s:
+        description: "Optional: presenter moments in seconds, comma separated (skips the automatic face pick)"
+        required: false
+        default: ""
 
 env:
   STUDIO_ROOT: ${{ secrets.STUDIO_ROOT || vars.STUDIO_ROOT }}
@@ -34,4 +38,4 @@ jobs:
         env:
           CHROME_PATH: /usr/bin/google-chrome
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || secrets.GEMINI_KEY }}
-        run: scripts/drive_thumbs.sh "${{ inputs.job }}"
+        run: THUMB_AT_S="${{ inputs.at_s }}" scripts/drive_thumbs.sh "${{ inputs.job }}"

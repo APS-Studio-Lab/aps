@@ -292,6 +292,8 @@ def main(argv=None):
     cfg = yaml.safe_load(job.read_text(encoding="utf-8"))
     base = job.parent
     tc = cfg.get("thumbnail") or {}
+    if os.environ.get("THUMB_AT_S", "").strip():  # moments picked by hand from faces_shortlist.jpg
+        tc["at_s"] = [float(x) for x in os.environ["THUMB_AT_S"].replace(" ", "").split(",") if x]
     work = Path(a.work or REPO / "work" / cfg["job"]).resolve()
     out_dir = work / "out" / "thumbnails"
     out_dir.mkdir(parents=True, exist_ok=True)
