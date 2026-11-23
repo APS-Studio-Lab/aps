@@ -25,6 +25,14 @@ echo "started $(date -u) run $GITHUB_RUN_ID" | rclone rcat "$INBOX/$JOB/_process
 
 mkdir -p "inbox/$JOB" out
 rclone copy "$INBOX/$JOB" "inbox/$JOB" --exclude "_*.txt" -q
+# inputs may sit loose in the inbox, referenced as ../<file> (e.g. a big export used by several jobs)
+python3 - "inbox/$JOB/job.yaml" <<'PY' | while IFS= read -r f; do rclone copyto "$INBOX/$f" "inbox/$f" -q; done
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+for v in (c.get("inputs") or {}).values():
+    if isinstance(v, str) and v.startswith("../") and not v.startswith("../../"):
+        print(v[3:])
+PY
 # shared brand assets (set plates, etc.), referenced from job.yaml as ../../00_Brand/...
 rclone copy "$ROOT/00_Brand" "00_Brand" -q 2>/dev/null || echo "No brand kit in Drive (optional)."
 set +e
