@@ -2,59 +2,41 @@
 <html><head><meta charset="utf-8">
 <link rel="stylesheet" href="inserts.css">
 <style>
-/* the bound volume lies open; the chapter is printed on its right page, mapped onto the page in perspective */
-#page{position:absolute;left:0;top:0;width:1000px;height:1300px;transform-origin:0 0;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;padding:90px 70px}
-#page .k{font:64px Typewriter;opacity:.75}
-#page .n{font:700 300px/1 Amiri;margin-top:20px}
-#page .t{font:700 128px/1.3 Amiri;text-align:center;margin-top:40px}
-#page .r{width:70%;height:5px;background:#231a10;margin-top:50px;opacity:.85}
-@media (orientation:portrait){#page{padding-left:400px;padding-right:40px} #page .t{font-size:112px}}
-#page .sub{font:52px/1.5 AmiriR;text-align:center;margin-top:40px}
+/* the bound volume lies open; the chapter is printed in old ink on its right page, following the page's curve */
+#page{width:1000px;height:820px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  direction:rtl;padding:40px 60px}
+#page .k{font:58px Amiri;opacity:.8}
+#page .n{font:700 250px/1 Amiri;margin-top:6px}
+#page .r{width:62%;height:5px;background:currentColor;margin-top:26px;opacity:.8}
+#page .t{font:700 112px/1.28 Amiri;text-align:center;margin-top:30px}
+#page .sub{font:50px/1.5 AmiriR;text-align:center;margin-top:24px}
+@media (orientation:portrait){#page .t{font-size:104px}}
 </style></head>
 <body>
 <script>/*DATA*/</script>
 <script src="inserts.js"></script>
 <script>
-Scene.build("bound_volume.jpeg", { push: 0.07, panX: V ? 0 : -0.01, panY: 0.01, posX: V ? 0.86 : 0.5 });
-// right page corners in the plate (1376 x 768): TL near spine top, TR, BR, BL near spine bottom
-const PAGE = [[826, 178], [1214, 256], [1096, 578], [586, 468]];
-const page = el("div", "ink rtl", Scene.stage, `
+const POSX = V ? 0.86 : 0.5;
+Scene.build("bound_volume.jpeg", { push: 0.07, panX: V ? 0 : -0.01, panY: 0.01, posX: POSX });
+// right page of the open volume, measured in the plate (1376 x 768): its top edge and its bottom edge,
+// each from the spine to the outer edge. The page arches up from the gutter, so the edges are curves.
+const TOP = [[826, 186], [850, 176], [905, 174], [1010, 197], [1110, 224], [1212, 252]];
+const BOT = [[592, 474], [650, 487], [750, 508], [850, 530], [960, 556], [1075, 584]];
+// printable area: away from the gutter and the edges (narrower in the vertical crop)
+const U0 = V ? 0.30 : 0.13, U1 = V ? 0.92 : 0.90, V0 = 0.10, V1 = 0.86;
+const P = (u, v) => {
+  const uu = U0 + (U1 - U0) * u, vv = V0 + (V1 - V0) * v;
+  const t = along(TOP, uu), b = along(BOT, uu);
+  return plateToScreen(t[0] + (b[0] - t[0]) * vv, t[1] + (b[1] - t[1]) * vv, POSX);
+};
+const content = el("div", "printed", Scene.stage, `
   <div class="k">${D.kicker || "الفصل"}</div><div class="n">${D.number}</div>
   <div class="r"></div><div class="t">${D.title}</div>${D.subtitle ? `<div class="sub">${D.subtitle}</div>` : ""}`);
-page.id = "page";
-
-function homography(src, dst) {               // solve the 3x3 projective map src -> dst (8 unknowns)
-  const A = [], b = [];
-  for (let i = 0; i < 4; i++) {
-    const [x, y] = src[i], [u, v] = dst[i];
-    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
-    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
-  }
-  for (let c = 0; c < 8; c++) {                // Gauss-Jordan
-    let p = c; for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
-    [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
-    for (let r = 0; r < 8; r++) if (r !== c) {
-      const f = A[r][c] / A[c][c];
-      for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k];
-      b[r] -= f * b[c];
-    }
-  }
-  const h = b.map((v, i) => v / A[i][i]);
-  return [h[0], h[3], 0, h[6], h[1], h[4], 0, h[7], 0, 0, 1, 0, h[2], h[5], 0, 1];
-}
-function placePage() {
-  // where the plate lands on screen (background-size:cover on an element 108% of the viewport, centred)
-  const bw = innerWidth * 1.08, bh = innerHeight * 1.08, sc = Math.max(bw / 1376, bh / 768);
-  const ox = -innerWidth * .04 + (bw - 1376 * sc) * Scene.posX, oy = -innerHeight * .04 + (bh - 768 * sc) / 2;
-  const dst = PAGE.map(([x, y]) => [ox + x * sc, oy + y * sc]);
-  const m = homography([[0, 0], [1000, 0], [1000, 1300], [0, 1300]], dst);
-  page.style.transform = `matrix3d(${m.join(",")})`;
-}
-placePage();
+content.id = "page";
+const print = printOnSurface(Scene.stage, content, 1000, 820, P, 12, 8);
 bindRender((t) => {
-  // the ink "develops" on the page as the camera settles: pages do not fly in, they are already printed
-  page.style.opacity = 0.25 + 0.75 * eOut(seg(t, 0.25, 1.1));
+  // the page is already printed; the ink comes up as the camera finds focus
+  print.holder.style.opacity = 0.35 + 0.65 * eOut(seg(t, 0.2, 1.0));
 });
 </script>
 </body></html>

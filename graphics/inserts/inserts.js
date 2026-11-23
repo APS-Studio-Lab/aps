@@ -38,6 +38,15 @@ const Scene = {
         <filter id="stampink"><feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="3" seed="9" result="n"/>
           <feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.2 1.35" result="m"/>
           <feComposite in="SourceGraphic" in2="m" operator="in"/></filter>
+        <filter id="oldink" x="-4%" y="-4%" width="108%" height="108%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="3" result="fine"/>
+          <feTurbulence type="fractalNoise" baseFrequency="0.011" numOctaves="2" seed="8" result="coarse"/>
+          <feDisplacementMap in="SourceGraphic" in2="fine" scale="${2.4 * Math.max(1, U)}" xChannelSelector="R" yChannelSelector="G" result="rough"/>
+          <feGaussianBlur in="rough" stdDeviation="${0.55 * Math.max(1, U)}" result="bleed"/>
+          <feColorMatrix in="fine" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  2.6 0 0 0 -0.55" result="speck"/>
+          <feComposite in="bleed" in2="speck" operator="in" result="specked"/>
+          <feColorMatrix in="coarse" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1.4 0 0 0 0.12" result="wear"/>
+          <feComposite in="specked" in2="wear" operator="in"/></filter>
       </svg>`);
     this.cam = el("div", "", document.body); this.cam.id = "cam";
     const p = el("div", "plate", this.cam);
@@ -81,6 +90,55 @@ const Scene = {
     g.putImageData(img, 0, 0);
   },
 };
+
+// ---------- printing on a real surface in a plate ----------
+function homography(src, dst) {               // 3x3 projective map src -> dst, as a CSS matrix3d
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  for (let c = 0; c < 8; c++) {
+    let p = c; for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
+    for (let r = 0; r < 8; r++) if (r !== c) { const f = A[r][c] / A[c][c]; for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k]; b[r] -= f * b[c]; }
+  }
+  const h = b.map((v, i) => v / A[i][i]);
+  return [h[0], h[3], 0, h[6], h[1], h[4], 0, h[7], 0, 0, 1, 0, h[2], h[5], 0, 1];
+}
+// plate pixel (in the 1376 x 768 plate) -> screen pixel, for the .plate layer (cover, inset -4%)
+function plateToScreen(px, py, posX = 0.5) {
+  const bw = innerWidth * 1.08, bh = innerHeight * 1.08, sc = Math.max(bw / 1376, bh / 768);
+  return [-innerWidth * .04 + (bw - 1376 * sc) * posX + px * sc, -innerHeight * .04 + (bh - 768 * sc) / 2 + py * sc];
+}
+// a polyline through plate points, sampled at t in 0..1 by arc length
+function along(pts, t) {
+  const L = [0]; for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const d = t * L[L.length - 1]; let i = 1; while (i < pts.length - 1 && L[i] < d) i++;
+  const k = (d - L[i - 1]) / ((L[i] - L[i - 1]) || 1);
+  return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * k, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * k];
+}
+// Print `content` (an element sized CW x CH) onto a surface P(u,v) -> screen [x,y], u,v in 0..1.
+// The surface is cut into a mesh of tiles, each with its own perspective map, so text follows curves.
+function printOnSurface(parent, content, CW, CH, P, nu = 10, nv = 8) {
+  const holder = el("div", "", parent);
+  holder.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;mix-blend-mode:multiply";
+  const tiles = [];
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const x0 = CW * i / nu, x1 = CW * (i + 1) / nu, y0 = CH * j / nv, y1 = CH * (j + 1) / nv;
+    const c = content.cloneNode(true);
+    c.style.position = "absolute"; c.style.left = "0"; c.style.top = "0";
+    c.style.width = CW + "px"; c.style.height = CH + "px"; c.style.transformOrigin = "0 0";
+    const e = 1.6;  // overlap a little so no seams show
+    c.style.clipPath = `polygon(${x0 - e}px ${y0 - e}px,${x1 + e}px ${y0 - e}px,${x1 + e}px ${y1 + e}px,${x0 - e}px ${y1 + e}px)`;
+    const q = [P(i / nu, j / nv), P((i + 1) / nu, j / nv), P((i + 1) / nu, (j + 1) / nv), P(i / nu, (j + 1) / nv)];
+    c.style.transform = `matrix3d(${homography([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], q).join(",")})`;
+    holder.appendChild(c); tiles.push(c);
+  }
+  content.remove();
+  return { holder, tiles };
+}
 
 // ---------- paper ----------
 function deckle(sheet, seed, rough = 0.6) {
