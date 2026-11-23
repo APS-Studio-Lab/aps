@@ -3,14 +3,28 @@
 @font-face{font-family:Tajawal;src:url(${FONTS}/Tajawal-Bold.ttf);font-weight:700}
 *{margin:0;padding:0;box-sizing:border-box}
 body{width:1280px;height:720px;overflow:hidden;background:#050b08;position:relative}
-.bg{position:absolute;inset:0;background:radial-gradient(ellipse 60% 80% at 28% 55%,#17402f 0%,#0b1f17 45%,#050b08 100%)}
+/* the episode scene, already graded into the night palette (studio_post/thumbs.py) */
+.scene{position:absolute;inset:0;background:url('${SCENE}') center/cover}
 .ghost{position:absolute;left:-30px;top:40px;font:900 470px/1 Cairo;color:#fff;opacity:.045;letter-spacing:-10px}
-.host{position:absolute;left:-70px;bottom:-90px;height:800px;filter:drop-shadow(0 30px 50px rgba(0,0,0,.7)) brightness(1.05) contrast(1.08)}
-.copy{position:absolute;right:60px;top:150px;width:620px;direction:rtl;text-align:right}
+/* the presenter: a real frame, cut out; a warm rim from the scene's light, a deep shadow behind */
+.host{position:absolute;
+  filter:drop-shadow(-5px -2px 7px rgba(245,180,0,.30)) drop-shadow(0 30px 50px rgba(0,0,0,.75)) brightness(1.06) contrast(1.1) saturate(1.05)}
+.grain{position:absolute;inset:0;opacity:.06;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>")}
+.copy{position:absolute;right:52px;top:150px;width:660px;direction:rtl;text-align:right}
 .tag{display:inline-block;font:700 30px/1 Tajawal;color:#0a0a0a;background:#f5b400;padding:12px 22px 8px;border-radius:6px;letter-spacing:1px}
-.m{font:900 104px/1.2 Cairo;color:#fff;white-space:nowrap}
+.m{font:900 100px/1.18 Cairo;color:#fff;white-space:nowrap;text-shadow:0 6px 24px rgba(0,0,0,.85),0 2px 4px rgba(0,0,0,.9)}
 .y{color:#f5b400}
-.brand{position:absolute;right:60px;bottom:40px;font:700 26px/1 Tajawal;color:#f5b400;opacity:.9;direction:rtl}
-</style></head><body><div class="bg"></div><div class="ghost">${GHOST}</div><img class="host" src="${HOST}">
-<div class="copy"><div class="tag">${TAG}</div><div class="m" style="margin-top:30px">${LINE1}</div><div class="m"><span class="y">${LINE2}</span></div></div>
-<div class="brand">${BRAND}</div></body></html>
+.brand{position:absolute;right:56px;bottom:38px;font:700 26px/1 Tajawal;color:#f5b400;opacity:.9;direction:rtl;text-shadow:0 2px 8px rgba(0,0,0,.9)}
+</style></head><body><div class="scene"></div><div class="ghost">${GHOST}</div><img class="host" src="${HOST}" style="${HOST_CSS}">
+<div class="grain"></div>
+<div class="copy">${TAG_HTML}<div class="m" style="margin-top:30px"><span>${LINE1}</span></div><div class="m"><span class="y">${LINE2}</span></div></div>
+<div class="brand">${BRAND}</div>
+<script>
+// keep the words clear of the face: shrink any line wider than the right side of the frame
+for (const m of document.querySelectorAll(".m")) {
+  let size = 100;
+  const words = m.querySelector("span");
+  while (words.offsetWidth > 640 && size > 56) { size -= 2; m.style.fontSize = size + "px"; }
+}
+</script></body></html>

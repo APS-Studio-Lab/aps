@@ -1,0 +1,37 @@
+name: Thumbnails
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Episode folder name in Drive (inbox or archive)"
+        required: true
+
+env:
+  STUDIO_ROOT: ${{ secrets.STUDIO_ROOT || vars.STUDIO_ROOT }}
+
+jobs:
+  thumbs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg rclone > /dev/null
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Python packages
+        run: pip install -q -r requirements.txt
+      - name: Drive access
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: |
+          test -n "$RCLONE_CONF" || (echo "Secret RCLONE_CONF is missing"; exit 1)
+          mkdir -p ~/.config/rclone && printf '%s' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
+      - name: Make thumbnails
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || secrets.GEMINI_KEY }}
+        run: scripts/drive_thumbs.sh "${{ inputs.job }}"
