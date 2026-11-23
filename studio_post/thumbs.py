@@ -268,12 +268,20 @@ def cutout(video: Path, t: float, keyer: Keyer) -> tuple[np.ndarray, tuple[float
     return out, face, fc
 
 
+def _blur(img: np.ndarray, sigma) -> np.ndarray:
+    """Gaussian blur with an explicit odd kernel (OpenCV 5 rejects some auto-sized kernels)."""
+    sigma = float(max(sigma, 0.3))
+    k = int(sigma * 3) * 2 + 1
+    return cv2.GaussianBlur(img, (k, k), sigma)
+
+
 def retouch(rgb: np.ndarray, a: np.ndarray, fc: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Photo retouch of a real frame, the way a thumbnail designer would do it by hand: clean noise, even the
     skin (texture kept), local contrast, crisp eyes, punchier colour, clean matte edge. Classic image
     processing only: no generative model, the face is never redrawn or reshaped."""
     h, w = rgb.shape[:2]
     fw = float(fc[2])
+    fc = fc.astype(np.float64)
     u8 = np.clip(rgb * 255, 0, 255).astype(np.uint8)
     # 1. noise: denoise the head area only (phone sensor noise shows when the face is blown up)
     hx0, hy0 = int(max(fc[0] - fw * 0.4, 0)), int(max(fc[1] - fw * 0.5, 0))
@@ -285,17 +293,17 @@ def retouch(rgb: np.ndarray, a: np.ndarray, fc: np.ndarray) -> tuple[np.ndarray,
     ycc = cv2.cvtColor(u8, cv2.COLOR_BGR2YCrCb)
     skin = ((ycc[..., 1] > 133) & (ycc[..., 1] < 180) & (ycc[..., 2] > 77) & (ycc[..., 2] < 135)).astype(np.float32)
     edges = cv2.Canny(u8, 40, 110).astype(np.float32) / 255  # glasses, eyes, brows, lips stay untouched
-    edges = cv2.GaussianBlur(cv2.dilate(edges, np.ones((5, 5), np.uint8)), (0, 0), fw * 0.01 + 1)
-    m = cv2.GaussianBlur(skin, (0, 0), fw * 0.015 + 1) * np.clip(1 - edges * 2.5, 0, 1) * a
+    edges = _blur(cv2.dilate(edges, np.ones((5, 5), np.uint8)), fw * 0.01 + 1)
+    m = _blur(skin, fw * 0.015 + 1) * np.clip(1 - edges * 2.5, 0, 1) * a
     r = max(1.0, fw * 0.012)
-    low = cv2.GaussianBlur(f, (0, 0), r)
+    low = _blur(f, r)
     high = f - low
     low_s = cv2.bilateralFilter(low, 0, 0.05, r * 3)
     f = f + m[..., None] * 0.55 * ((low_s + high * 0.75) - f)
     # 3. local contrast and gentle dodge on the face, so it reads at phone size
     lab = cv2.cvtColor(np.clip(f, 0, 1), cv2.COLOR_BGR2Lab)
     L = lab[..., 0] / 100
-    big = cv2.GaussianBlur(L, (0, 0), fw * 0.08 + 2)
+    big = _blur(L, fw * 0.08 + 2)
     L = L + 0.35 * (L - big)
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
     cx, cy = fc[0] + fw / 2, fc[1] + fc[3] * 0.45
@@ -305,7 +313,7 @@ def retouch(rgb: np.ndarray, a: np.ndarray, fc: np.ndarray) -> tuple[np.ndarray,
     lab[..., 1:] *= 1.10  # a touch more colour
     f = cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
     # 4. sharpen: overall, then extra on the eyes
-    sh = f - cv2.GaussianBlur(f, (0, 0), max(1.0, fw * 0.004))
+    sh = f - _blur(f, max(1.0, fw * 0.004))
     eyes = np.zeros((h, w), np.float32)
     for ex, ey in ((fc[4], fc[5]), (fc[6], fc[7])):
         eyes += np.exp(-(((xx - ex) / (fw * 0.16)) ** 2 + ((yy - ey) / (fw * 0.10)) ** 2))
@@ -313,7 +321,7 @@ def retouch(rgb: np.ndarray, a: np.ndarray, fc: np.ndarray) -> tuple[np.ndarray,
     f = f * (1 + 0.05 * eyes[..., None])  # a little light in the eyes
     # 5. clean matte: pull the fringe in and soften it by a pixel
     a = np.clip((a - 0.06) / 0.94, 0, 1)
-    a = cv2.GaussianBlur(a, (0, 0), max(0.6, fw * 0.0015))
+    a = _blur(a, max(0.6, fw * 0.0015))
     return np.clip(f, 0, 1), a
 
 
