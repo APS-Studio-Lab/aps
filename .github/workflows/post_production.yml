@@ -24,6 +24,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Extra swap (full episodes at 4K need more than the runner's 16 GB)
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 12G /swapfile2 && sudo chmod 600 /swapfile2 && sudo mkswap -q /swapfile2 && sudo swapon /swapfile2
+          free -m | awk '/Mem|Swap/{print $1, $2" MB"}'
+
       - name: System packages
         run: |
           sudo apt-get update -qq

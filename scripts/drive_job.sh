@@ -31,6 +31,12 @@ set +e
 # the full log goes to Drive (private); the public Actions log only shows the stage counters
 python -m studio_post.run "inbox/$JOB/job.yaml" --work "work/$JOB" > run.log 2>&1 &
 pid=$!
+# if the runner dies (out of memory) no later step runs: copy the log and memory use to Drive every 5 minutes
+( while kill -0 $pid 2>/dev/null; do
+    echo "$(date -u +%H:%M) $(free -m | awk '/Mem/{print "mem used "$3" of "$2" MB"} /Swap/{print "swap "$3" MB"}' | tr '\n' ' ')" >> mem.log
+    cat run.log mem.log 2>/dev/null | rclone rcat "$INBOX/$JOB/_live.txt" -q 2>/dev/null || true
+    sleep 300
+  done ) &
 tail -n +1 -f run.log --pid=$pid | grep --line-buffered -E '^\[[0-9]/7\]|^STOPPED' | sed -E 's/:.*//' || true
 wait $pid
 code=$?
@@ -39,6 +45,7 @@ set -e
 dest="$RENDERS/$JOB"
 rclone copy "work/$JOB/out" "$dest" -q || true
 rclone copyto run.log "$dest/run.log"
+rclone deletefile "$INBOX/$JOB/_live.txt" -q 2>/dev/null || true
 rclone deletefile "$INBOX/$JOB/_processing.txt" || true
 if [ "$code" -eq 0 ]; then
   rclone moveto "$INBOX/$JOB" "$ARCHIVE/$JOB"
