@@ -32,6 +32,16 @@ def _path(p: str | None, base: Path) -> Path | None:
     return q if q.is_absolute() else (base / q).absolute()
 
 
+def audio_seconds(wav: Path) -> float:
+    import wave
+    try:
+        with wave.open(str(wav)) as w:
+            return w.getnframes() / float(w.getframerate())
+    except wave.Error:  # float or extensible WAV
+        from .util import ffprobe
+        return float(ffprobe(wav)["format"]["duration"])
+
+
 def _bokeh(w: int, h: int, n: int, seed: int) -> str:
     rnd = random.Random(seed)
     out = ""
@@ -169,7 +179,24 @@ def main(argv=None):
         if wf:
             words = json.loads(wf.read_text(encoding="utf-8"))
         else:
-            utts = transcribe.transcribe(work / "voice_cut.wav", tr_cfg, report)
+            # Transcripts are kept next to job.yaml (transcript_cache.json) so re-renders cost no Gemini calls.
+            # A hand-made one (e.g. from Antigravity) in the same format is used the same way.
+            cache = base / "transcript_cache.json"
+            dur = round(audio_seconds(work / "voice_cut.wav"), 2)
+            utts = None
+            if cache.exists() and not tr_cfg.get("refresh"):
+                c = json.loads(cache.read_text(encoding="utf-8"))
+                if abs(float(c.get("duration_s", dur)) - dur) <= 0.5 and c.get("utterances"):
+                    utts = c["utterances"]
+                    report["transcript"] = {"engine": f"cached ({c.get('engine', 'manual')})", "utterances": len(utts)}
+                else:
+                    report.setdefault("warnings", []).append(
+                        f"transcript_cache.json ignored: made for {c.get('duration_s')}s of audio, this cut is {dur}s")
+            if utts is None:
+                utts = transcribe.transcribe(work / "voice_cut.wav", tr_cfg, report)
+                (work / "transcript_cache.json").write_text(json.dumps(
+                    {"engine": report.get("transcript", {}).get("engine"), "duration_s": dur, "utterances": utts},
+                    ensure_ascii=False, indent=1), encoding="utf-8")
             (work / "transcript_raw.json").write_text(json.dumps(utts, ensure_ascii=False, indent=1), encoding="utf-8")
             words = transcribe.to_words(utts)
         if cfg.get("retakes", {}).get("enabled", True) and not pretrimmed:

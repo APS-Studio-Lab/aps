@@ -175,11 +175,13 @@ def whisper(audio: Path, model_size: str, glossary: list[str]) -> list[dict]:
 
 
 def transcribe(audio: Path, cfg: dict, report: dict) -> list[dict]:
+    """Gemini by default. No silent fallback: Whisper is weaker on Egyptian Ammia, so it is used only when the
+    job asks for it (engine: whisper, or fallback: whisper). Otherwise a Gemini failure stops the render."""
     engine = cfg.get("engine", "gemini")
     from . import brandkit
     glossary = GLOSSARY + brandkit.glossary() + list(cfg.get("glossary", []))
     errors = []
-    order = [engine] + [e for e in ("gemini", "whisper") if e != engine]
+    order = [engine] + [e for e in [cfg.get("fallback")] if e and e != engine]
     for eng in order:
         try:
             utts = gemini(audio, cfg.get("gemini_model", "gemini-3.5-flash"), glossary) if eng == "gemini" \
@@ -190,7 +192,11 @@ def transcribe(audio: Path, cfg: dict, report: dict) -> list[dict]:
             return utts
         except StageError as e:
             errors.append(f"{eng}: {e}")
-    raise StageError("all transcription engines failed: " + " | ".join(errors))
+    msg = " | ".join(errors)
+    if "429" in msg or "quota" in msg.lower():
+        raise StageError("Gemini free quota is used up for today. Re-run after it resets (about 10:00 Cairo), or put "
+                         "a transcript_cache.json in the episode folder (e.g. made in Antigravity). " + msg[:300])
+    raise StageError("transcription failed: " + msg)
 
 
 def to_words(utts: list[dict]) -> list[dict]:

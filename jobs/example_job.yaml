@@ -10,7 +10,10 @@ edit:
   look_down_pitch: 0.66
 
 transcript:
-  engine: gemini                       # gemini (needs GEMINI_API_KEY secret) or whisper; the other is the backup
+  engine: gemini                       # gemini (needs GEMINI_API_KEY secret) or whisper
+  # fallback: whisper                  # opt-in backup; by default a Gemini failure stops the render (no weak captions)
+  # refresh: true                      # ignore transcript_cache.json and transcribe again
+  # The transcript is saved as transcript_cache.json next to job.yaml and reused by every re-render.
   gemini_model: gemini-3.5-flash
   glossary: ["أوبر", "Uber", "Travis Kalanick", "Benchmark"]   # names and terms said in this episode
 

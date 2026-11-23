@@ -46,6 +46,8 @@ dest="$RENDERS/$JOB"
 rclone copy "work/$JOB/out" "$dest" -q || true
 rclone copyto run.log "$dest/run.log"
 rclone deletefile "$INBOX/$JOB/_live.txt" -q 2>/dev/null || true
+# keep the transcript with the episode so re-renders reuse it (no new Gemini calls)
+[ -f "work/$JOB/transcript_cache.json" ] && rclone copyto "work/$JOB/transcript_cache.json" "$INBOX/$JOB/transcript_cache.json" -q || true
 rclone deletefile "$INBOX/$JOB/_processing.txt" || true
 if [ "$code" -eq 0 ]; then
   rclone moveto "$INBOX/$JOB" "$ARCHIVE/$JOB"
