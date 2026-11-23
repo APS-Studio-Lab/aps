@@ -7,8 +7,9 @@ on:
         description: "Inbox folder name in Drive (leave empty to take the next one)"
         required: false
         default: ""
-  schedule:
-    - cron: "17 6,18 * * *"   # twice a day (UTC); also run it manually from the GitHub app
+  # schedule paused while the edit style, inserts and overlays are being redesigned; renders run by hand only
+  # schedule:
+  #   - cron: "17 6,18 * * *"
 
 concurrency:
   group: post-production
