@@ -10,7 +10,7 @@ on:
         required: false
         default: ""
 env:
-  STUDIO_ROOT: ${{ vars.STUDIO_ROOT }}   # Drive folder name; set under Settings → Variables
+  STUDIO_ROOT: ${{ vars.STUDIO_ROOT || secrets.STUDIO_ROOT }}   # Drive folder name (Variables tab, or a secret)
 
 jobs:
   probe:
