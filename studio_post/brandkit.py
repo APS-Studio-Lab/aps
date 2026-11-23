@@ -30,8 +30,15 @@ def name() -> str:
     return str(load().get("name", ""))
 
 
-def logo() -> Path | None:
-    rel = load().get("logo")
+def logo(on_dark: bool = True) -> Path | None:
+    """The logo file. Video sits on dark sets, so the dark-background version is used when the kit has one
+    (brand.yaml logo_dark, or logo/logo_primary_dark.png)."""
+    k = load()
+    if on_dark:
+        for rel in (k.get("logo_dark"), "logo/logo_primary_dark.png"):
+            if rel and (KIT / rel).exists():
+                return KIT / rel
+    rel = k.get("logo")
     if not rel:
         return None
     p = KIT / rel

@@ -168,6 +168,11 @@ def tighten(program_wav: Path, n_frames: int, cuts: list[int], cfg: dict) -> tup
     quiet = db < max(floor + 10, np.percentile(db, 35) - 6)
     drop = np.zeros(n_frames, bool)
     removed = 0
+    # flash frames: a sliver of 1-2 frames between two cuts of the export reads as a glitch; drop it
+    for c0, c1 in zip(cuts, cuts[1:]):
+        if 0 < c1 - c0 <= 2:
+            drop[c0:c1] = True
+            removed += c1 - c0
     for c in cuts:
         if c >= m or not quiet[min(c, m - 1)] and not quiet[max(c - 1, 0)]:
             continue
