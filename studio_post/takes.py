@@ -96,6 +96,23 @@ def voice_file(d: Path) -> Path | None:
     return a[0] if a else None
 
 
+def sync_any(clip: Path, voice: Path) -> tuple[float, float]:
+    """Offset so that voice time = clip time + offset, whichever recording is longer (the recorder may have
+    started before or after the camera). Fails loudly when the match is weak."""
+    from scipy.signal import fftconvolve
+    from .ingest import _envelope, _pcm
+    cam, vo = _envelope(_pcm(clip, 1000)), _envelope(_pcm(voice, 1000))
+    long_, short = (vo, cam) if len(vo) >= len(cam) else (cam, vo)
+    n = min(len(short), 100 * 600)  # match on up to 10 minutes of the shorter one
+    corr = fftconvolve(long_, short[:n][::-1], "valid") / n
+    i = int(np.argmax(corr))
+    score, runner = float(corr[i]), float(np.partition(corr, -200)[-200]) if len(corr) > 200 else 0.0
+    if score < 0.5 or score - runner < 0.15:
+        raise StageError(f"voice sync is unreliable (match {score:.2f}, runner-up {runner:.2f})")
+    off = i / 100 if len(vo) >= len(cam) else -i / 100
+    return off, score
+
+
 def duration(p: Path) -> float:
     return float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
                                  str(p)], capture_output=True, text=True, check=True).stdout.strip())
@@ -105,7 +122,7 @@ def clip_audio_cmd(c: Path, sync: dict, limit: float | None) -> list[str]:
     """ffmpeg input args giving the audio for clip c on the clip's own timeline: the separate voice recording
     when it was synced to this clip, otherwise the camera's sound."""
     lim = ["-t", f"{limit:.3f}"] if limit else []
-    if c.name in sync:
+    if c.name in sync and sync[c.name][1] >= 0:
         v, off = sync[c.name]
         return ["-ss", f"{off:.4f}", *lim, "-i", str(v)]
     return [*lim, "-i", str(c)]
@@ -143,6 +160,42 @@ def transcribe_clips(clips: list[Path], work: Path, sync: dict | None = None,
             words.append({"w": w.word.strip(), "clip": c.name, "ci": ci, "s": round(w.start - o, 3),
                           "e": round(w.end - o, 3), "p": round(w.probability, 3)})
     return words
+
+
+def gemini_takes(clips: list[Path], work: Path, sync: dict, limit: float | None, gap: float = 0.55) -> list[dict]:
+    """Attempts (takes) per clip: Gemini writes what was said in Ammia, every attempt kept; the voice detector
+    gives the exact start and end of each stretch of speech so cuts land in the pauses."""
+    from faster_whisper.vad import VadOptions, get_speech_timestamps
+    from . import transcribe, brandkit
+    work.mkdir(parents=True, exist_ok=True)
+    out = []
+    for ci, c in enumerate(clips):
+        wav = work / f"a{ci}.wav"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", *clip_audio_cmd(c, sync, limit), "-vn", "-ac", "1", "-ar",
+                        "16000", "-c:a", "pcm_s16le", str(wav)], check=True)
+        x = np.frombuffer(wav.read_bytes()[44:], np.int16).astype(np.float32) / 32768
+        spans = [(d["start"] / 16000, d["end"] / 16000) for d in get_speech_timestamps(
+            x, VadOptions(threshold=0.45, min_silence_duration_ms=int(gap * 1000), speech_pad_ms=60))]
+        segs = transcribe.gemini(wav, "gemini-3.5-flash", transcribe.GLOSSARY + brandkit.glossary())
+        # each Gemini piece belongs to the speech span it overlaps most; pieces in one span form one take
+        groups: dict[int, list] = defaultdict(list)
+        for g in segs:
+            best, bi = 0.0, None
+            for k, (a, b) in enumerate(spans):
+                ov = min(b, g["end"]) - max(a, g["start"])
+                if ov > best:
+                    best, bi = ov, k
+            if bi is None:  # no speech span under it: nearest one
+                bi = int(np.argmin([min(abs(a - g["start"]), abs(b - g["end"])) for a, b in spans])) if spans else None
+            if bi is not None:
+                groups[bi].append(g)
+        for k in sorted(groups):
+            a, b = spans[k]
+            text = " ".join(g["text"] for g in groups[k])
+            toks = text.split()
+            ws = [{"w": w, "ci": ci, "clip": c.name, "s": a, "e": b} for w in toks]
+            out.append({"clip": c.name, "ci": ci, "s": round(a, 2), "e": round(b, 2), "text": text, "words": ws})
+    return out
 
 
 def utterances(words: list[dict], gap: float = 0.55) -> list[dict]:
@@ -184,34 +237,51 @@ def match(utts: list[dict], snt: list[str]) -> None:
         u["span"] = (hit[0], hit[-1]) if hit else (-1, -1)
 
 
+DANGLING = {norm(w) for w in ("لان", "لأن", "و", "كان", "اللي", "عشان", "بس", "في", "من", "على", "ان", "إن", "يعني")}
+
+
+def _overlap(a: list[str], b: list[str]) -> float:
+    """Share of a's words that b repeats in the same order."""
+    from difflib import SequenceMatcher
+    if not a:
+        return 0.0
+    m = SequenceMatcher(None, a, b, autojunk=False)
+    return sum(bl.size for bl in m.get_matching_blocks()) / len(a)
+
+
 def decide(utts: list[dict], min_score: float = 0.4) -> None:
-    kept = []  # indices of scripted utterances currently kept
+    """Retakes are found by comparing attempts with each other (the presenter repeats a line until it is
+    right, and often improvises around the script); the script only adds a hint of where a take belongs."""
+    toks = [[t for t in (norm(w["w"]) for w in u["words"]) if t] for u in utts]
     for i, u in enumerate(utts):
-        norm_words = {norm(w["w"]) for w in u["words"]}
-        is_meta = u["n"] <= 4 and any(norm(m) in norm_words for m in META)
-        if is_meta:
-            u["decision"], u["why"] = "drop", "meta (instruction to self)"; continue
-        if u["score"] < min_score:
-            if u["n"] <= 3:
-                u["decision"], u["why"] = "drop", "fragment, not in script"
-            else:
-                u["decision"], u["why"] = "keep", "UNSCRIPTED: kept, please check"
+        if "drop_by_restart" in u:
+            u["decision"], u["why"] = "drop", f"part of an attempt restarted at #{u.pop('drop_by_restart') + 1}"
             continue
-        a, b = u["span"]
-        u["decision"], u["why"] = "keep", f"script line ~{a}"
-        # a later attempt of the same script stretch replaces the earlier one(s) it overlaps
-        for k in list(kept):
-            pa, pb = utts[k]["span"]
-            ov = max(0, min(b, pb) - max(a, pa) + 1)
-            if ov >= 0.5 * min(b - a + 1, pb - pa + 1):
-                if u["n"] >= 0.6 * utts[k]["n"]:
-                    utts[k]["decision"], utts[k]["why"] = "drop", f"retake: said again at #{i + 1}"
-                    kept.remove(k)
-                else:
-                    u["decision"], u["why"] = "drop", f"fragment of #{k + 1} (shorter later attempt)"
-                    break
-        if u["decision"] == "keep":
-            kept.append(i)
+        u["decision"], u["why"] = "keep", ("script ~%d" % u["span"][0]) if u.get("score", 0) >= min_score else "off-script"
+        ti = toks[i]
+        if len(ti) <= 4 and any(norm(m) in set(ti) for m in META):
+            u["decision"], u["why"] = "drop", "meta (instruction to self)"; continue
+        if len(ti) <= 1:
+            u["decision"], u["why"] = "drop", "fragment"; continue
+        for j in range(i + 1, min(len(utts), i + 6)):
+            if utts[j]["ci"] != u["ci"] or utts[j]["s"] - u["e"] > 60:
+                break
+            tj = toks[j]
+            r = _overlap(ti, tj)
+            if r >= 0.55 and len(tj) >= 0.6 * len(ti):
+                u["decision"], u["why"] = "drop", f"retake: said again at #{j + 1} ({r:.0%} the same)"
+                break
+            same_start = len(ti) >= 2 and len(tj) >= 2 and ti[:2] == tj[:2]
+            if same_start and (len(ti) < len(tj) or ti[:3] == tj[:3]) and utts[j]["s"] - u["e"] < 25:
+                u["decision"], u["why"] = "drop", f"restarted at #{j + 1} (same opening)"
+                for k in range(i + 1, j):  # what was said between the abandoned attempt and the restart
+                    utts[k]["drop_by_restart"] = j
+                break
+            if j == i + 1 and ti and ti[-1] in DANGLING and tj[:1] == ti[:1]:
+                u["decision"], u["why"] = "drop", f"cut off mid-sentence, restarted at #{j + 1}"
+                break
+            if 0.35 <= r < 0.55 and u["decision"] == "keep":
+                u["why"] = f"CHECK: may repeat #{j + 1} ({r:.0%} the same)"
 
 
 def plan(clips_dir: Path, script: Path, out: Path, max_minutes: float | None = None) -> dict:
@@ -229,17 +299,20 @@ def plan(clips_dir: Path, script: Path, out: Path, max_minutes: float | None = N
     # a separate voice recording is synced to each clip it covers; the camera's sound is the fallback
     voice, sync, notes = voice_file(clips_dir), {}, []
     if voice:
-        from .ingest import sync_voice
         for c in clips:
-            r = {}
             try:
-                sync[c.name] = (voice, sync_voice(c, voice, r))
-                notes.append(f"{c.name}: voice synced at {r['sync']['voice_offset_s']} s (score {r['sync']['score']})")
+                off, score = sync_any(c, voice)
+                sync[c.name] = (voice, off)
+                notes.append(f"{c.name}: separate voice recording synced (offset {off:+.2f} s, match {score:.2f})")
             except StageError as e:
                 notes.append(f"{c.name}: camera sound used ({e})")
     snt, srt, sli = script_tokens(script)
-    words = transcribe_clips(clips, out / "_work", sync, limit)
-    utts = utterances(words)
+    try:
+        utts = gemini_takes(clips, out / "_work", sync, limit)
+        notes.append("text: Gemini (Ammia), timing: voice detector")
+    except StageError as e:
+        notes.append(f"text: Whisper (Gemini unavailable: {str(e)[:120]})")
+        utts = utterances(transcribe_clips(clips, out / "_work", sync, limit))
     match(utts, snt)
     decide(utts)
     out.mkdir(parents=True, exist_ok=True)
@@ -251,7 +324,7 @@ def plan(clips_dir: Path, script: Path, out: Path, max_minutes: float | None = N
     lines = ["# Takes plan", "",
              f"{len(clips)} clips, {len(utts)} utterances: {len(kept)} kept "
              f"({sum(u['e'] - u['s'] for u in kept):.0f} s), {len(utts) - len(kept)} dropped.", *notes,
-             "Reply with changes like: keep 12, drop 30, use 41 instead of 44.", "",
+             "Reply with changes like: keep 12, drop 30, use 41 instead of 44. Lines marked CHECK are the unsure ones.", "",
              "| # | clip | time | decision | why | what was said |", "|---|---|---|---|---|---|"]
     for i, u in enumerate(utts):
         lines.append(f"| {i + 1} | {u['clip']} | {u['s']:.1f}–{u['e']:.1f} | {u['decision']} | {u['why']} | "
@@ -290,7 +363,7 @@ def assemble(clips_dir: Path, plan_file: Path, out: Path, pre: float = 0.15, pos
         if hdr10:
             venc += ["-color_primaries", hdr.get("color_primaries", "bt2020"), "-color_trc", hdr["color_transfer"],
                      "-colorspace", hdr.get("color_space", "bt2020nc")]
-        if clip in p.get("sync", {}):  # sound from the separate voice recording, synced
+        if clip in p.get("sync", {}) and s + p["sync"][clip] >= 0:  # sound from the separate voice recording
             off = p["sync"][clip]
             ins = ["-ss", f"{s:.3f}", "-to", f"{e:.3f}", "-i", str(clips_dir / clip),
                    "-ss", f"{s + off:.3f}", "-to", f"{e + off:.3f}", "-i", str(clips_dir / p["voice"])]
