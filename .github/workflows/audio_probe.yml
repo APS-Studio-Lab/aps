@@ -15,6 +15,10 @@ on:
         description: "Seconds"
         required: false
         default: "60"
+      af:
+        description: "Optional ffmpeg audio filter before analysis, e.g. afftdn=nf=-30:tn=1"
+        required: false
+        default: ""
 env:
   STUDIO_ROOT: ${{ secrets.STUDIO_ROOT || vars.STUDIO_ROOT }}
 
@@ -32,12 +36,13 @@ jobs:
         env: { RCLONE_CONF: "${{ secrets.RCLONE_CONF }}" }
         run: mkdir -p ~/.config/rclone && printf '%s' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
       - name: Probe
-        env: { P: "${{ inputs.path }}", S: "${{ inputs.start }}", D: "${{ inputs.dur }}" }
+        env: { P: "${{ inputs.path }}", S: "${{ inputs.start }}", D: "${{ inputs.dur }}", AF: "${{ inputs.af }}" }
         run: |
           set -e
           rclone copyto "gdrive:$STUDIO_ROOT/$P" in.media
           mkdir -p out
-          ffmpeg -v error -ss "$S" -t "$D" -i in.media -vn -ac 1 -ar 48000 -c:a pcm_s16le out/a.wav
+          ffmpeg -v error -ss "$S" -t "$D" -i in.media -vn -ac 1 -ar 48000 ${AF:+-af "$AF"} -c:a pcm_s16le out/a.wav
+          ffprobe -v error -show_entries stream=codec_name,sample_rate,channels,bit_rate -select_streams a -of default=nw=1 in.media
           python3 scripts/audio_probe.py out/a.wav "$S" out
           rm out/a.wav
           rclone copy out "gdrive:$STUDIO_ROOT/02_Renders/_probe_audio" -q
