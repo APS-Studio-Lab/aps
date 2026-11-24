@@ -173,7 +173,9 @@ def main(argv=None):
         if mode == "words":  # cut the air between words and sentences, never into a word
             if pv and w0 > 0:
                 w0, w1 = joins.snap_window(program, w0, w1)
-            takes, removed, info = joins.tighten_words(program, n_frames, [], edit_cfg, w0, w1)
+            scan = joins.frame_scan(mezz)
+            src_cuts = joins.source_cuts(scan[0], track)
+            takes, removed, info = joins.tighten_words(program, n_frames, [], edit_cfg, w0, w1, src_cuts)
             report["edit"].update({"pauses_removed_s": round(removed, 1), "cuts_added": info.get("cuts", 0),
                                    "silences_found": info.get("silences"), "pause_detector": info.get("detector"),
                                    "seconds": round(sum(b - a + 1 for a, b in takes) / FPS, 1)})

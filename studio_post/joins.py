@@ -285,7 +285,8 @@ def silence_runs(program_wav: Path, t0: float, t1: float, min_len: float = 0.2,
 
 
 def tighten_words(program_wav: Path, n_frames: int, words: list[tuple[float, float]], cfg: dict,
-                  t0: float = 0.0, t1: float | None = None) -> tuple[list[tuple[int, int]], float, dict]:
+                  t0: float = 0.0, t1: float | None = None,
+                  cuts: list[int] | None = None) -> tuple[list[tuple[int, int]], float, dict]:
     """Remove the dead air between words and sentences without ever cutting into a word.
 
     Whisper's word times are good at saying WHERE words are but tend to stretch each word over the pause that
@@ -315,6 +316,11 @@ def tighten_words(program_wav: Path, n_frames: int, words: list[tuple[float, flo
         if c1 - c0 < 1.5 / FPS:
             continue
         a0, a1 = int(np.ceil(c0 * FPS)), int(np.floor(c1 * FPS))
+        # a cut already in the video inside this pause: the removed stretch must swallow it, or the viewer
+        # sees two jumps a few frames apart
+        for c in cuts or []:
+            if s * FPS <= c <= e * FPS:
+                a0, a1 = min(a0, c), max(a1, c + 1)
         if a1 > a0:
             drop[a0:a1] = True
             removed += (a1 - a0) / FPS
