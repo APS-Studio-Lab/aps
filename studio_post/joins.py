@@ -326,6 +326,12 @@ def tighten_words(program_wav: Path, n_frames: int, words: list[tuple[float, flo
             takes.append((start, f - 1)); start = None
     if start is not None:
         takes.append((start, f1))
+    # slivers: a few frames left between two removed pauses (e.g. either side of a cut between takes) would
+    # flash on screen; they hold no word, so they go too
+    sliver = int(float(cfg.get("min_piece_s", 0.3)) * FPS)
+    kept = [t for k, t in enumerate(takes) if not (0 < k < len(takes) - 1 and t[1] - t[0] + 1 < sliver)]
+    removed += sum(t[1] - t[0] + 1 for t in takes if t not in kept) / FPS
+    takes = kept
     return takes, removed, {"words": len(words), "cuts": len(takes) - 1, "silences": len(runs),
                             "noise_floor_db": None if floor is None else round(floor, 1), "detector": "silero" if floor is None else "energy"}
 
