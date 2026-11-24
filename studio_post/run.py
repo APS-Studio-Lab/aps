@@ -170,12 +170,12 @@ def main(argv=None):
         mode = edit_cfg.get("tighten", "words")
         pv = cfg.get("preview")
         w0, w1 = (float(pv.get("start_s", 0)), float(pv.get("end_s", 60))) if pv else (0.0, n_frames / FPS)
-        if mode == "words":  # word timings from Whisper: cut the air between words, never a word itself
-            wl = joins.word_times(program, max(0.0, w0 - 3), min(n_frames / FPS, w1 + 3))
-            if pv:
-                w0, w1 = joins.snap_window(wl, w0, w1)
-            takes, removed, info = joins.tighten_words(program, n_frames, wl, edit_cfg, w0, w1)
+        if mode == "words":  # cut the air between words and sentences, never into a word
+            if pv and w0 > 0:
+                w0, w1 = joins.snap_window(program, w0, w1)
+            takes, removed, info = joins.tighten_words(program, n_frames, [], edit_cfg, w0, w1)
             report["edit"].update({"pauses_removed_s": round(removed, 1), "cuts_added": info.get("cuts", 0),
+                                   "silences_found": info.get("silences"), "noise_floor_db": info.get("noise_floor_db"),
                                    "seconds": round(sum(b - a + 1 for a, b in takes) / FPS, 1)})
         elif mode:  # older energy-only rule, only at the export's own cuts
             scan = joins.frame_scan(mezz)
