@@ -26,7 +26,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: scripts/apt.sh ffmpeg rclone && pip install -q "faster-whisper>=1.0" opencv-python-headless numpy
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: scripts/tools.sh && pip install -q "faster-whisper>=1.0" opencv-python-headless numpy
       - name: Drive access
         env: { RCLONE_CONF: "${{ secrets.RCLONE_CONF }}" }
         run: mkdir -p ~/.config/rclone && printf '%s' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf

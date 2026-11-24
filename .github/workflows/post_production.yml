@@ -32,8 +32,9 @@ jobs:
           free -m | awk '/Mem|Swap/{print $1, $2" MB"}'
 
       - name: System packages
+        env: { GH_TOKEN: "${{ github.token }}" }
         run: |
-          scripts/apt.sh ffmpeg rclone
+          scripts/tools.sh
           ffmpeg -hide_banner -filters | grep -q zscale || (echo "ffmpeg lacks zscale (needed for HDR)"; exit 1)
 
       - uses: actions/setup-python@v5
