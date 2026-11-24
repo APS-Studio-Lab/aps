@@ -162,39 +162,70 @@ def transcribe_clips(clips: list[Path], work: Path, sync: dict | None = None,
     return words
 
 
-def gemini_takes(clips: list[Path], work: Path, sync: dict, limit: float | None, gap: float = 0.55) -> list[dict]:
-    """Attempts (takes) per clip: Gemini writes what was said in Ammia, every attempt kept; the voice detector
-    gives the exact start and end of each stretch of speech so cuts land in the pauses."""
+def _gemini_texts(audio: np.ndarray, k: int, glossary: list[str]) -> list[str]:
+    """Text of k separate stretches of speech (each followed by 1 s of silence) in one request, in order."""
+    import base64
+    import io
+    import wave
+    from .thumbs import _gemini_json
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+        w.writeframes((np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes())
+    q = (f"This audio holds exactly {k} separate stretches of speech by one Egyptian presenter, each followed by "
+         "one second of silence. Transcribe EACH stretch exactly as spoken: Egyptian Arabic in Arabic script as "
+         "said (no Modern Standard Arabic, no fixing), English words in Latin script, keep false starts, "
+         "repetitions and unfinished sentences. Write [unclear] for a stretch you cannot make out. "
+         f'Return JSON {{"segments": [{k} strings, in order]}}. Names that may occur: ' + ", ".join(glossary))
+    r = _gemini_json([{"text": q}, {"inline_data": {"mime_type": "audio/wav",
+                                                    "data": base64.b64encode(buf.getvalue()).decode()}}],
+                     "gemini-3.5-flash", timeout=180)
+    segs = [str(x).strip() for x in r.get("segments", [])]
+    if len(segs) != k:
+        raise StageError(f"Gemini returned {len(segs)} texts for {k} stretches")
+    return segs
+
+
+def gemini_takes(clips: list[Path], work: Path, sync: dict, limit: float | None, gap: float = 0.55,
+                 join: float = 0.9) -> list[dict]:
+    """Attempts (takes) per clip. The voice detector finds every stretch of speech (exact start and end, so
+    cuts land in pauses); stretches closer than `join` seconds are one take (a breath inside a sentence).
+    Gemini then writes the text of each take, several takes per request, told exactly how many to expect,
+    so no stretch of speech can be lost or get another take's text."""
     from faster_whisper.vad import VadOptions, get_speech_timestamps
     from . import transcribe, brandkit
+    gloss = transcribe.GLOSSARY + brandkit.glossary()
     work.mkdir(parents=True, exist_ok=True)
     out = []
     for ci, c in enumerate(clips):
-        wav = work / f"a{ci}.wav"
-        subprocess.run(["ffmpeg", "-v", "error", "-y", *clip_audio_cmd(c, sync, limit), "-vn", "-ac", "1", "-ar",
-                        "16000", "-c:a", "pcm_s16le", str(wav)], check=True)
-        x = np.frombuffer(wav.read_bytes()[44:], np.int16).astype(np.float32) / 32768
-        spans = [(d["start"] / 16000, d["end"] / 16000) for d in get_speech_timestamps(
+        raw = subprocess.run(["ffmpeg", "-v", "error", *clip_audio_cmd(c, sync, limit), "-vn", "-ac", "1", "-ar",
+                              "16000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
+        x = np.frombuffer(raw, np.float32)
+        spans = [[d["start"] / 16000, d["end"] / 16000] for d in get_speech_timestamps(
             x, VadOptions(threshold=0.45, min_silence_duration_ms=int(gap * 1000), speech_pad_ms=60))]
-        segs = transcribe.gemini(wav, "gemini-3.5-flash", transcribe.GLOSSARY + brandkit.glossary())
-        # each Gemini piece belongs to the speech span it overlaps most; pieces in one span form one take
-        groups: dict[int, list] = defaultdict(list)
-        for g in segs:
-            best, bi = 0.0, None
-            for k, (a, b) in enumerate(spans):
-                ov = min(b, g["end"]) - max(a, g["start"])
-                if ov > best:
-                    best, bi = ov, k
-            if bi is None:  # no speech span under it: nearest one
-                bi = int(np.argmin([min(abs(a - g["start"]), abs(b - g["end"])) for a, b in spans])) if spans else None
-            if bi is not None:
-                groups[bi].append(g)
-        for k in sorted(groups):
-            a, b = spans[k]
-            text = " ".join(g["text"] for g in groups[k])
-            toks = text.split()
-            ws = [{"w": w, "ci": ci, "clip": c.name, "s": a, "e": b} for w in toks]
-            out.append({"clip": c.name, "ci": ci, "s": round(a, 2), "e": round(b, 2), "text": text, "words": ws})
+        tk = []
+        for sp in spans:
+            if tk and sp[0] - tk[-1][1] < join:
+                tk[-1][1] = sp[1]
+            else:
+                tk.append(list(sp))
+        sil = np.zeros(16000, np.float32)
+        i = 0
+        while i < len(tk):
+            batch, dur = [], 0.0
+            while i < len(tk) and len(batch) < 12 and (dur + tk[i][1] - tk[i][0] <= 40 or not batch):
+                batch.append(tk[i]); dur += tk[i][1] - tk[i][0]; i += 1
+            audio = np.concatenate([np.concatenate([x[int(a * 16000):int(b * 16000)], sil]) for a, b in batch])
+            try:
+                texts = _gemini_texts(audio, len(batch), gloss)
+            except Exception:
+                try:
+                    texts = _gemini_texts(audio, len(batch), gloss)
+                except Exception as e:
+                    raise StageError(f"Gemini transcription failed: {e}")
+            for (a, b), t in zip(batch, texts):
+                ws = [{"w": w, "ci": ci, "clip": c.name, "s": a, "e": b} for w in t.split()]
+                out.append({"clip": c.name, "ci": ci, "s": round(a, 2), "e": round(b, 2), "text": t, "words": ws})
     return out
 
 
@@ -259,6 +290,8 @@ def decide(utts: list[dict], min_score: float = 0.4) -> None:
             continue
         u["decision"], u["why"] = "keep", ("script ~%d" % u["span"][0]) if u.get("score", 0) >= min_score else "off-script"
         ti = toks[i]
+        if "unclear" in u["text"].lower() or not ti:
+            u["why"] = "CHECK: speech the transcript could not make out"; continue
         if len(ti) <= 4 and any(norm(m) in set(ti) for m in META):
             u["decision"], u["why"] = "drop", "meta (instruction to self)"; continue
         if len(ti) <= 1:
