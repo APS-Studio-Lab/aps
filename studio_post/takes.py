@@ -216,28 +216,38 @@ def gemini_takes(clips: list[Path], work: Path, sync: dict, limit: float | None,
         # Whisper's words (exact timing, rougher text) check that Gemini's texts landed on the right takes
         wh = transcribe_clips([c], work / f"w{ci}", sync, limit)
         wtext = [" ".join(w["w"] for w in wh if a - 0.2 <= w["s"] <= b + 0.2) for a, b in tk]
+        def ok(texts: list[str], idx: list[int]) -> bool:
+            sims = [_overlap([norm(w) for w in wtext[j].split()], [norm(w) for w in texts[q].split()])
+                    for q, j in enumerate(idx)]
+            slid = 0
+            for q, j in enumerate(idx):
+                nb = [_overlap([norm(w) for w in wtext[j].split()], [norm(w) for w in texts[q + d].split()])
+                      for d in (-1, 1) if 0 <= q + d < len(idx)]
+                if nb and sims[q] < 0.25 and max(nb) > sims[q] + 0.2:
+                    slid += 1
+            return slid == 0
+
+        def texts_for(idx: list[int]) -> list[str]:
+            """Gemini texts for these takes; a batch whose texts slid onto neighbours is split and redone."""
+            audio = np.concatenate([np.concatenate([x[int(tk[j][0] * 16000):int(tk[j][1] * 16000)], sil]) for j in idx])
+            try:
+                got = _gemini_texts(audio, len(idx), gloss)
+            except Exception:
+                got = None
+            if got is not None and (len(idx) == 1 or ok(got, idx)):
+                return got
+            if len(idx) == 1:  # one take Gemini could not do: Whisper's rough text, flagged
+                return [f"{wtext[idx[0]]} [CHECK: rough text]"]
+            h = len(idx) // 2
+            return texts_for(idx[:h]) + texts_for(idx[h:])
+
         i = 0
         while i < len(tk):
-            batch, dur = [], 0.0
-            while i < len(tk) and len(batch) < 12 and (dur + tk[i][1] - tk[i][0] <= 40 or not batch):
-                batch.append(tk[i]); dur += tk[i][1] - tk[i][0]; i += 1
-            audio = np.concatenate([np.concatenate([x[int(a * 16000):int(b * 16000)], sil]) for a, b in batch])
-            try:
-                texts = _gemini_texts(audio, len(batch), gloss)
-            except Exception:
-                try:
-                    texts = _gemini_texts(audio, len(batch), gloss)
-                except Exception as e:
-                    raise StageError(f"Gemini transcription failed: {e}")
-            i0 = i - len(batch)
-            sims = [_overlap([norm(w) for w in wtext[i0 + q].split()], [norm(w) for w in texts[q].split()])
-                    for q in range(len(batch))]
-            shifted = [max(_overlap([norm(w) for w in wtext[i0 + q].split()],
-                                    [norm(w) for w in texts[q + d].split()]) for d in (-1, 1)
-                           if 0 <= q + d < len(batch)) if len(batch) > 1 else 0 for q in range(len(batch))]
-            bad = sum(1 for a_, b_ in zip(sims, shifted) if a_ < 0.25 and b_ > a_ + 0.2)
-            if bad >= 2:  # texts slid onto the neighbouring takes: use Whisper's text for this batch
-                texts = [f"{wtext[i0 + q]} [CHECK: rough text]" for q in range(len(batch))]
+            idx, dur = [], 0.0
+            while i < len(tk) and len(idx) < 6 and (dur + tk[i][1] - tk[i][0] <= 25 or not idx):
+                idx.append(i); dur += tk[i][1] - tk[i][0]; i += 1
+            batch = [tk[j] for j in idx]
+            texts = texts_for(idx)
             for (a, b), t in zip(batch, texts):
                 ws = [{"w": w, "ci": ci, "clip": c.name, "s": a, "e": b} for w in t.split()]
                 out.append({"clip": c.name, "ci": ci, "s": round(a, 2), "e": round(b, 2), "text": t, "words": ws})
