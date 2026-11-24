@@ -167,19 +167,31 @@ def main(argv=None):
     if pretrimmed:  # already cut by hand (e.g. a Filmora export): keep the cuts, only tighten the pauses at them
         takes = [(0, n_frames - 1)]
         report["edit"] = {"mode": "keep (pre-edited export)", "seconds": round(n_frames / FPS, 1)}
-        if edit_cfg.get("tighten", True):
+        mode = edit_cfg.get("tighten", "words")
+        pv = cfg.get("preview")
+        w0, w1 = (float(pv.get("start_s", 0)), float(pv.get("end_s", 60))) if pv else (0.0, n_frames / FPS)
+        if mode == "words":  # word timings from Whisper: cut the air between words, never a word itself
+            wl = joins.word_times(program, max(0.0, w0 - 3), min(n_frames / FPS, w1 + 3))
+            if pv:
+                w0, w1 = joins.snap_window(wl, w0, w1)
+            takes, removed, info = joins.tighten_words(program, n_frames, wl, edit_cfg, w0, w1)
+            report["edit"].update({"pauses_removed_s": round(removed, 1), "cuts_added": info.get("cuts", 0),
+                                   "seconds": round(sum(b - a + 1 for a, b in takes) / FPS, 1)})
+        elif mode:  # older energy-only rule, only at the export's own cuts
             scan = joins.frame_scan(mezz)
             cuts = joins.source_cuts(scan[0], track)
             takes, removed = joins.tighten(program, n_frames, cuts, edit_cfg)
             report["edit"].update({"pauses_tightened_s": round(removed, 1),
                                    "seconds": round(sum(b - a + 1 for a, b in takes) / FPS, 1)})
+        if pv:
+            cfg["preview"] = {"start_s": w0, "end_s": w1}
+    else:
+        takes = edit.speech_frames(program, edit_cfg, n_frames, track, report)
     pv = cfg.get("preview")
     if pv:  # render only a window of the source, for a quick look at the edit style
         f0, f1 = int(float(pv.get("start_s", 0)) * FPS), int(float(pv.get("end_s", 60)) * FPS)
         takes = [(max(a, f0), min(b, f1)) for a, b in takes if b >= f0 and a <= f1]
-        report.setdefault("edit", {})["preview"] = f"{pv.get('start_s', 0)}–{pv.get('end_s', 60)} s of the source"
-    else:
-        takes = edit.speech_frames(program, edit_cfg, n_frames, track, report)
+        report.setdefault("edit", {})["preview"] = f"{pv.get('start_s', 0):.1f}–{pv.get('end_s', 60):.1f} s of the source"
     _, master_wav = audio.cut_and_master(program, takes, work)
 
     cap_cfg = cfg.get("captions", {"enabled": False})
@@ -310,7 +322,8 @@ def main(argv=None):
                             light_side=bgc.get("light_from", "left"),
                             bg_blur=float(bgc.get("blur", 0.5 if bgc.get("image_h") else 3.0)),
                             host_shift_x=int(cfg.get("framing", {}).get("host_shift_x", 240)),
-                            framing=framing_path, screen=screen_path)
+                            framing=framing_path, screen=screen_path,
+                            soft_cut_frames=int(j_cfg.get("soft_cut_frames", 2)))
 
     print(f"[7/7] composite {len(frames)} frames on {a.workers} workers", flush=True)
     chunk = -(-len(frames) // a.workers)

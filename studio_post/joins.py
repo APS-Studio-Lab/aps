@@ -14,6 +14,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from .util import FPS, StageError
@@ -202,3 +203,87 @@ def tighten(program_wav: Path, n_frames: int, cuts: list[int], cfg: dict) -> tup
     if start is not None:
         takes.append((start, n_frames - 1))
     return takes, removed / FPS
+
+
+def word_times(program_wav: Path, t0: float, t1: float, model_size: str = "large-v3") -> list[tuple[float, float]]:
+    """Word start/end times (source seconds) in [t0, t1], from Whisper's word timestamps. Runs on the
+    render machine, no API quota. Only the timing is used here, never the text."""
+    import subprocess
+    from faster_whisper import WhisperModel
+    pcm = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t0:.3f}", "-to", f"{t1:.3f}", "-i", str(program_wav),
+                          "-ac", "1", "-ar", "16000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
+    model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    segs, _ = model.transcribe(np.frombuffer(pcm, np.float32), language="ar", word_timestamps=True,
+                               vad_filter=True, vad_parameters={"min_silence_duration_ms": 250, "speech_pad_ms": 150},
+                               condition_on_previous_text=False)
+    out = []
+    for s in segs:
+        for w in (s.words or []):
+            if w.word.strip():
+                out.append((t0 + float(w.start), t0 + float(w.end)))
+    return out
+
+
+def tighten_words(program_wav: Path, n_frames: int, words: list[tuple[float, float]], cfg: dict,
+                  t0: float = 0.0, t1: float | None = None) -> tuple[list[tuple[int, int]], float, dict]:
+    """Keep every word (with a little air around it) and remove the dead air between words and sentences.
+    Anything loud that Whisper did not mark as a word is kept too, so a missed word is never cut."""
+    import wave
+    pre, post = float(cfg.get("word_pre_s", 0.05)), float(cfg.get("word_post_s", 0.09))
+    in_gap = float(cfg.get("word_gap_s", 0.05))        # pause kept between words of one sentence
+    sent_gap = float(cfg.get("sentence_gap_s", 0.20))  # pause kept between sentences
+    sent_min = float(cfg.get("sentence_break_s", 0.6)) # an original pause this long marks a sentence break
+    f0 = int(t0 * FPS)
+    f1 = n_frames - 1 if t1 is None else min(n_frames - 1, int(t1 * FPS))
+    keep = np.zeros(n_frames, bool)
+    for s, e in words:
+        keep[max(f0, int((s - pre) * FPS)):min(f1 + 1, int(np.ceil((e + post) * FPS)))] = True
+    # safety net: loud frames the word list missed (numbers, names Whisper skipped) stay in
+    with wave.open(str(program_wav), "rb") as r:
+        sr, ch = r.getframerate(), r.getnchannels()
+        x = np.frombuffer(r.readframes(r.getnframes()), np.int16).reshape(-1, ch).astype(np.float32).mean(1) / 32768
+    hop = sr // FPS
+    m = min(n_frames, len(x) // hop)
+    db = 20 * np.log10(np.sqrt((x[:m * hop].reshape(m, hop) ** 2).mean(1) + 1e-12))
+    seg = db[f0:min(f1 + 1, m)]
+    loud = np.zeros(n_frames, bool)
+    if len(seg):
+        thr = np.percentile(seg, 15) + 0.55 * (np.percentile(seg, 90) - np.percentile(seg, 15))
+        loud[f0:f0 + len(seg)] = seg > thr
+        loud = cv2.dilate(loud.astype(np.uint8)[None], np.ones((1, 7), np.uint8))[0].astype(bool)
+    keep |= loud & (np.arange(n_frames) >= f0) & (np.arange(n_frames) <= f1)
+    # now shrink every gap between kept stretches to the pause it deserves
+    takes, k, removed = [], f0, 0
+    runs = []
+    while k <= f1:
+        if keep[k]:
+            s = k
+            while k <= f1 and keep[k]:
+                k += 1
+            runs.append([s, k - 1])
+        else:
+            k += 1
+    if not runs:
+        return [(f0, f1)], 0.0, {"words": len(words)}
+    merged = [runs[0]]
+    for s, e in runs[1:]:
+        gap = (s - merged[-1][1] - 1) / FPS
+        want = sent_gap if gap >= sent_min else in_gap
+        if gap <= want + 1 / FPS:
+            merged[-1][1] = e          # short enough: keep the pause as it is, no cut
+        else:
+            extra = int(round(want * FPS))
+            merged[-1][1] += extra // 2   # air after the last word ...
+            s -= extra - extra // 2       # ... and before the next
+            removed += gap - want
+            merged.append([s, e])
+    takes = [(a, b) for a, b in merged]
+    return takes, removed, {"words": len(words), "cuts": len(takes) - 1}
+
+
+def snap_window(words: list[tuple[float, float]], t0: float, t1: float, min_pause: float = 0.4) -> tuple[float, float]:
+    """Move a preview window's ends into pauses, so it never starts or ends in the middle of a word."""
+    gaps = [(a_end, b_start) for (_, a_end), (b_start, _) in zip(words, words[1:]) if b_start - a_end >= min_pause]
+    s = next(((a + b) / 2 for a, b in gaps if t0 <= (a + b) / 2 <= t0 + 10), t0)
+    e = next(((a + b) / 2 for a, b in gaps if t1 <= (a + b) / 2 <= t1 + 10), t1)
+    return s, max(e, s + 5)

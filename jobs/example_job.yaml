@@ -52,11 +52,14 @@ joins:
   enabled: true
   punch_in: 1.06        # small punch-in, only at a cut where the body really jumps
   min_gap_s: 12         # never two framing changes closer than this
+  soft_cut_frames: 2    # removed pause inside a take: a 2-frame dissolve instead of a hard pop
   jump_threshold: 0.15  # how big a body jump must be (share of face width) to earn a punch-in
   min_segment_s: 0.8    # shorter pieces are flagged in the report
 # edit:
 #   mode: keep          # the video is already cut by hand (e.g. a Filmora export): keep its cuts
-#   tighten: true       # shorten dead pauses at those cuts so sentences run on into a paragraph
-#   max_pause_s: 0.35   # pauses longer than this at a cut are shortened ...
-#   keep_pause_s: 0.16  # ... to this
+#   tighten: words      # words (default): Whisper word timings, remove the air between words and sentences,
+#                       #   never a word (anything loud Whisper missed is kept too); energy: old rule; false: off
+#   word_gap_s: 0.05    # pause kept between words of one sentence
+#   sentence_gap_s: 0.20  # pause kept between sentences
+#   sentence_break_s: 0.6 # an original pause this long counts as a sentence break
 # preview: {start_s: 0, end_s: 60}   # render only this window of the source, for a quick look

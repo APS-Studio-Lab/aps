@@ -29,6 +29,7 @@ class Layers:
     bg_blur: float = 3.0
     framing: Path | None = None      # per output frame [zoom, face_x, face_y] (.npy) from joins.plan
     screen: Path | None = None       # per source frame: True = green-screen shot, False = pass through as is
+    soft_cut_frames: int = 2         # a removed pause inside a take: dissolve over this many frames (0 = hard cut)
 
 
 def _load(path: Path, alpha: bool = False) -> np.ndarray:
@@ -129,6 +130,8 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
     S = layers.vertical_scale
     cx_s = None
     count = 0
+    prev_H = prev_V = None
+    soft_left, held_H, held_V = 0, None, None
     for k, fr in enumerate(src):
         n_src = frames[k]
         t = (first_out_index + k) / FPS
@@ -212,6 +215,20 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
                 Hf = Hf * (1 - w) + c["fh"].astype(np.float32) / 255 * w
                 Vf = Vf * (1 - w) + c["fv"].astype(np.float32) / 255 * w
 
+        # soft cut: where the edit removed a pause inside one take, dissolve from the held last frame over
+        # a couple of frames, so the small body jump reads as motion instead of a pop
+        n = layers.soft_cut_frames
+        if n and k > 0 and frames[k] != frames[k - 1] + 1 and prev_H is not None and \
+                (framing is None or np.all(framing[first_out_index + k] == framing[first_out_index + k - 1])):
+            soft_left, held_H, held_V = n, prev_H, prev_V
+        if soft_left:
+            w = 1 - soft_left / (n + 1)
+            Hf_out, Vf_out = Hf * w + held_H * (1 - w), Vf * w + held_V * (1 - w)
+            soft_left -= 1
+        else:
+            Hf_out, Vf_out = Hf, Vf
+        prev_H, prev_V = Hf, Vf
+        Hf, Vf = Hf_out, Vf_out
         wh.stdin.write((Hf * 255).astype(np.uint8).tobytes())
         wv.stdin.write((Vf * 255).astype(np.uint8).tobytes())
         count += 1
