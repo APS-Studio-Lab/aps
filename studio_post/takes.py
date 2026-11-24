@@ -434,8 +434,8 @@ def assemble(clips_dir: Path, plan_file: Path, out: Path, pre: float = 0.15, pos
         raise StageError("the plan keeps nothing")
     # merge kept utterances that follow each other in the same clip into one piece (no cut between them)
     pieces = []
-    for u in keep:
-        s, e = max(0.0, u["s"] - pre), u["e"] + post
+    for u in keep:  # a take trimmed at a word carries its own tighter pad ("pre"/"post")
+        s, e = max(0.0, u["s"] - u.get("pre", pre)), u["e"] + u.get("post", post)
         if pieces and pieces[-1][0] == u["clip"] and s <= pieces[-1][2] + 0.6:
             pieces[-1][2] = e
         else:
