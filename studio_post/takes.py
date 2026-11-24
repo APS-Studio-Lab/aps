@@ -25,6 +25,7 @@ import numpy as np
 from .util import StageError
 
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".mkv"}
+AUDIO_EXT = {".m4a", ".wav", ".mp3", ".aac", ".flac"}
 META = {"تاني", "تانى", "استنى", "استني", "معلش", "ثانية", "ثانيه", "كت", "cut", "اعيد", "هعيد", "نعيد", "اعيدها",
         "مرة", "غلط", "لا لا"}
 
@@ -89,20 +90,37 @@ def clip_list(d: Path) -> list[Path]:
     return sorted(clips, key=when)
 
 
+def voice_file(d: Path) -> Path | None:
+    """A separately recorded voice (lapel/phone recorder) in the clips folder, if any."""
+    a = sorted(p for p in d.iterdir() if p.suffix.lower() in AUDIO_EXT)
+    return a[0] if a else None
+
+
 def duration(p: Path) -> float:
     return float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
                                  str(p)], capture_output=True, text=True, check=True).stdout.strip())
 
 
-def transcribe_clips(clips: list[Path], work: Path) -> list[dict]:
+def clip_audio_cmd(c: Path, sync: dict, limit: float | None) -> list[str]:
+    """ffmpeg input args giving the audio for clip c on the clip's own timeline: the separate voice recording
+    when it was synced to this clip, otherwise the camera's sound."""
+    lim = ["-t", f"{limit:.3f}"] if limit else []
+    if c.name in sync:
+        v, off = sync[c.name]
+        return ["-ss", f"{off:.4f}", *lim, "-i", str(v)]
+    return [*lim, "-i", str(c)]
+
+
+def transcribe_clips(clips: list[Path], work: Path, sync: dict | None = None,
+                     limit: float | None = None) -> list[dict]:
     """One audio file for all clips (faster than one model pass each), then words mapped back to clips."""
     from faster_whisper import WhisperModel
     work.mkdir(parents=True, exist_ok=True)
     offs, t = [], 0.0
     pcm = []
     for c in clips:
-        a = subprocess.run(["ffmpeg", "-v", "error", "-i", str(c), "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le",
-                            "-"], capture_output=True, check=True).stdout
+        a = subprocess.run(["ffmpeg", "-v", "error", *clip_audio_cmd(c, sync or {}, limit), "-vn", "-ac", "1",
+                            "-ar", "16000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
         x = np.frombuffer(a, np.float32)
         offs.append((t, c))
         pcm.append(x); pcm.append(np.zeros(16000, np.float32))  # 1 s of silence between clips
@@ -198,6 +216,7 @@ def decide(utts: list[dict], min_score: float = 0.4) -> None:
 
 def plan(clips_dir: Path, script: Path, out: Path, max_minutes: float | None = None) -> dict:
     clips = clip_list(clips_dir)
+    limit = None
     if max_minutes:
         sel, tot = [], 0.0
         for c in clips:
@@ -205,19 +224,33 @@ def plan(clips_dir: Path, script: Path, out: Path, max_minutes: float | None = N
                 break
             sel.append(c); tot += duration(c)
         clips = sel
+        if len(clips) == 1:  # one long recording: only its first minutes
+            limit = max_minutes * 60
+    # a separate voice recording is synced to each clip it covers; the camera's sound is the fallback
+    voice, sync, notes = voice_file(clips_dir), {}, []
+    if voice:
+        from .ingest import sync_voice
+        for c in clips:
+            r = {}
+            try:
+                sync[c.name] = (voice, sync_voice(c, voice, r))
+                notes.append(f"{c.name}: voice synced at {r['sync']['voice_offset_s']} s (score {r['sync']['score']})")
+            except StageError as e:
+                notes.append(f"{c.name}: camera sound used ({e})")
     snt, srt, sli = script_tokens(script)
-    words = transcribe_clips(clips, out / "_work")
+    words = transcribe_clips(clips, out / "_work", sync, limit)
     utts = utterances(words)
     match(utts, snt)
     decide(utts)
     out.mkdir(parents=True, exist_ok=True)
-    plan = {"clips": [c.name for c in clips], "utterances": [
+    plan = {"clips": [c.name for c in clips], "voice": voice.name if voice else None,
+            "sync": {k: v[1] for k, v in sync.items()}, "notes": notes, "utterances": [
         {k: v for k, v in u.items() if k != "words"} | {"num": i + 1} for i, u in enumerate(utts)]}
     (out / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
     kept = [u for u in utts if u["decision"] == "keep"]
     lines = ["# Takes plan", "",
              f"{len(clips)} clips, {len(utts)} utterances: {len(kept)} kept "
-             f"({sum(u['e'] - u['s'] for u in kept):.0f} s), {len(utts) - len(kept)} dropped.",
+             f"({sum(u['e'] - u['s'] for u in kept):.0f} s), {len(utts) - len(kept)} dropped.", *notes,
              "Reply with changes like: keep 12, drop 30, use 41 instead of 44.", "",
              "| # | clip | time | decision | why | what was said |", "|---|---|---|---|---|---|"]
     for i, u in enumerate(utts):
@@ -257,8 +290,15 @@ def assemble(clips_dir: Path, plan_file: Path, out: Path, pre: float = 0.15, pos
         if hdr10:
             venc += ["-color_primaries", hdr.get("color_primaries", "bt2020"), "-color_trc", hdr["color_transfer"],
                      "-colorspace", hdr.get("color_space", "bt2020nc")]
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{s:.3f}", "-to", f"{e:.3f}", "-i",
-                        str(clips_dir / clip), "-map", "0:v:0", "-map", "0:a:0", "-r", "30", *venc,
+        if clip in p.get("sync", {}):  # sound from the separate voice recording, synced
+            off = p["sync"][clip]
+            ins = ["-ss", f"{s:.3f}", "-to", f"{e:.3f}", "-i", str(clips_dir / clip),
+                   "-ss", f"{s + off:.3f}", "-to", f"{e + off:.3f}", "-i", str(clips_dir / p["voice"])]
+            amap = ["-map", "0:v:0", "-map", "1:a:0"]
+        else:
+            ins = ["-ss", f"{s:.3f}", "-to", f"{e:.3f}", "-i", str(clips_dir / clip)]
+            amap = ["-map", "0:v:0", "-map", "0:a:0"]
+        subprocess.run(["ffmpeg", "-v", "error", "-y", *ins, *amap, "-r", "30", *venc,
                         "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", str(f)], check=True)
         lst.append(f"file '{f.resolve()}'")
     (tmp / "list.txt").write_text("\n".join(lst))
