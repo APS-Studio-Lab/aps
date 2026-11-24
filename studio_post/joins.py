@@ -224,6 +224,32 @@ def word_times(program_wav: Path, t0: float, t1: float, model_size: str = "large
     return out
 
 
+def _vad_gaps(x: np.ndarray, sr: int, t0: float, t1: float, min_len: float):
+    """Pauses between speech, from the Silero voice detector that ships with faster-whisper. It tells speech
+    from room tone, breaths and background music, which a loudness threshold cannot. None if unavailable."""
+    try:
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+    except Exception:
+        return None
+    a, b = max(0, int(t0 * sr)), min(len(x), int(t1 * sr))
+    seg = x[a:b]
+    if sr % 16000 == 0:
+        k = sr // 16000
+        y = seg[:len(seg) // k * k].reshape(-1, k).mean(1)
+    else:
+        y = np.interp(np.arange(0, len(seg) / sr, 1 / 16000), np.arange(len(seg)) / sr, seg)
+    opts = VadOptions(threshold=0.45, min_silence_duration_ms=int(min_len * 1000), speech_pad_ms=30,
+                      min_speech_duration_ms=60)
+    sp = get_speech_timestamps(y.astype(np.float32), opts)
+    t_a = a / sr
+    spans = [(t_a + d["start"] / 16000, t_a + d["end"] / 16000) for d in sp]
+    gaps = [(e0, s1) for (_, e0), (s1, _) in zip(spans, spans[1:]) if s1 - e0 >= min_len]
+    if spans:
+        if spans[0][0] - t_a >= min_len:
+            gaps.insert(0, (t_a, spans[0][0]))
+    return gaps, None
+
+
 def silence_runs(program_wav: Path, t0: float, t1: float, min_len: float = 0.2,
                  above: float = 9.0) -> tuple[list[tuple[float, float]], float]:
     """Stretches (seconds) that stay within `above` dB of the room's noise floor for at least min_len."""
@@ -231,6 +257,9 @@ def silence_runs(program_wav: Path, t0: float, t1: float, min_len: float = 0.2,
     with wave.open(str(program_wav), "rb") as r:
         sr, ch = r.getframerate(), r.getnchannels()
         x = np.frombuffer(r.readframes(r.getnframes()), np.int16).reshape(-1, ch).astype(np.float32).mean(1) / 32768
+    vad = _vad_gaps(x, sr, t0, t1, min_len)
+    if vad is not None:
+        return vad
     hop = sr // 100  # 10 ms analysis, finer than a video frame
     m = len(x) // hop
     db = 20 * np.log10(np.sqrt((x[:m * hop].reshape(m, hop) ** 2).mean(1) + 1e-12))
@@ -294,7 +323,7 @@ def tighten_words(program_wav: Path, n_frames: int, words: list[tuple[float, flo
     if start is not None:
         takes.append((start, f1))
     return takes, removed, {"words": len(words), "cuts": len(takes) - 1, "silences": len(runs),
-                            "noise_floor_db": round(floor, 1)}
+                            "noise_floor_db": None if floor is None else round(floor, 1), "detector": "silero" if floor is None else "energy"}
 
 
 def snap_window(program_wav: Path, t0: float, t1: float, min_pause: float = 0.4) -> tuple[float, float]:

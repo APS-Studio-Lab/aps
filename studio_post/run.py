@@ -175,7 +175,7 @@ def main(argv=None):
                 w0, w1 = joins.snap_window(program, w0, w1)
             takes, removed, info = joins.tighten_words(program, n_frames, [], edit_cfg, w0, w1)
             report["edit"].update({"pauses_removed_s": round(removed, 1), "cuts_added": info.get("cuts", 0),
-                                   "silences_found": info.get("silences"), "noise_floor_db": info.get("noise_floor_db"),
+                                   "silences_found": info.get("silences"), "pause_detector": info.get("detector"),
                                    "seconds": round(sum(b - a + 1 for a, b in takes) / FPS, 1)})
         elif mode:  # older energy-only rule, only at the export's own cuts
             scan = joins.frame_scan(mezz)
