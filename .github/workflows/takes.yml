@@ -1,0 +1,60 @@
+name: Takes (raw clips)
+# plan: pick the takes from raw phone clips against the script -> 01_Inbox/<folder>/_plan/plan.md (for approval)
+# assemble: join the approved takes (plan_final.json if present, else plan.json) -> 01_Inbox/<folder>_assembled.mp4
+on:
+  workflow_dispatch:
+    inputs:
+      folder:
+        description: "Clips folder in 01_Inbox, e.g. E3_raw"
+        required: true
+      script:
+        description: "Script file path under the studio folder (docx, md or txt)"
+        required: true
+      mode:
+        description: "plan or assemble"
+        required: true
+        default: plan
+      max_minutes:
+        description: "Plan only the first N minutes of clips (test). Empty = all"
+        required: false
+        default: ""
+env:
+  STUDIO_ROOT: ${{ secrets.STUDIO_ROOT || vars.STUDIO_ROOT }}
+
+jobs:
+  takes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: scripts/tools.sh && pip install -q -r requirements.txt python-docx "faster-whisper>=1.1"
+      - uses: actions/cache@v4
+        with: { path: ~/.cache/huggingface, key: whisper-turbo-v1 }
+      - name: Drive access
+        env: { RCLONE_CONF: "${{ secrets.RCLONE_CONF }}" }
+        run: mkdir -p ~/.config/rclone && printf '%s' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
+      - name: Run
+        env: { F: "${{ inputs.folder }}", S: "${{ inputs.script }}", M: "${{ inputs.mode }}", MAXM: "${{ inputs.max_minutes }}" }
+        run: |
+          set -u
+          echo "::add-mask::$F"
+          ROOT="gdrive:$STUDIO_ROOT"
+          rclone copy "$ROOT/01_Inbox/$F" clips --exclude "_*/**" -q
+          if [ "$M" = plan ]; then
+            EXT="${S##*.}"; rclone copyto "$ROOT/$S" "script.$EXT" -q
+            python -u -m studio_post.takes plan clips "script.$EXT" plan ${MAXM:+--max-minutes "$MAXM"} > takes.log 2>&1; st=$?
+            grep -E "^plan:" takes.log || true
+            rclone copy plan "$ROOT/01_Inbox/$F/_plan" --exclude "_work/**" -q || true
+            rclone copyto takes.log "$ROOT/01_Inbox/$F/_plan/takes.log" -q
+          else
+            rclone copy "$ROOT/01_Inbox/$F/_plan" plan --include "plan*.json" -q
+            P=plan/plan.json; [ -f plan/plan_final.json ] && P=plan/plan_final.json
+            python -u -m studio_post.takes assemble clips "$P" assembled.mp4 > takes.log 2>&1; st=$?
+            grep -E "^assembled" takes.log || true
+            [ $st -eq 0 ] && rclone copyto assembled.mp4 "$ROOT/01_Inbox/${F}_assembled.mp4" -q
+            rclone copyto takes.log "$ROOT/01_Inbox/$F/_plan/assemble.log" -q
+          fi
+          exit $st
