@@ -259,7 +259,9 @@ def gemini_takes(clips: list[Path], work: Path, sync: dict, limit: float | None,
             texts = texts_for(idx)
             for (a, b), t in zip(batch, texts):
                 ws = [{"w": w, "ci": ci, "clip": c.name, "s": a, "e": b} for w in t.split()]
-                out.append({"clip": c.name, "ci": ci, "s": round(a, 2), "e": round(b, 2), "text": t, "words": ws})
+                timed = [[w["w"], round(w["s"], 2), round(w["e"], 2)] for w in wh if a - 0.2 <= w["s"] <= b + 0.2]
+                out.append({"clip": c.name, "ci": ci, "s": round(a, 2), "e": round(b, 2), "text": t, "words": ws,
+                            "timed_words": timed})
     return out
 
 
@@ -328,6 +330,8 @@ def decide(utts: list[dict], min_score: float = 0.4) -> None:
             u["why"] = "CHECK: speech the transcript could not make out"; continue
         if "[CHECK" in u["text"]:
             u["why"] = "CHECK: rough text"
+        if "بسم الله" in u["text"]:
+            u["decision"], u["why"] = "drop", "pre-roll (before the episode starts)"; continue
         if len(ti) <= 4 and any(norm(m) in set(ti) for m in META):
             u["decision"], u["why"] = "drop", "meta (instruction to self)"; continue
         if len(ti) <= 1:
@@ -336,13 +340,21 @@ def decide(utts: list[dict], min_score: float = 0.4) -> None:
             if utts[j]["ci"] != u["ci"] or utts[j]["s"] - u["e"] > 60:
                 break
             tj = toks[j]
+            # the story moved on in between: a take unlike both means j is a new sentence, not a retake of i
+            if any(_overlap(toks[k], ti) < 0.3 and _overlap(toks[k], tj) < 0.3 and len(toks[k]) > 2
+                   for k in range(i + 1, j)):
+                break
             r = _overlap(ti, tj)
             if r >= 0.55 and len(tj) >= 0.6 * len(ti):
                 u["decision"], u["why"] = "drop", f"retake: said again at #{j + 1} ({r:.0%} the same)"
+                lost = [w["w"] for w, t in zip(u["words"], [norm(x["w"]) for x in u["words"]])
+                        if t and t not in set(tj) and (any(ch.isdigit() for ch in w["w"]) or len(t) >= 4)]
+                if lost:
+                    utts[j]["lost_from"] = (i, lost)
                 break
             # same opening: the first words of this attempt start the later one too (a word like "كان" may be
             # added in front of the restart)
-            same_start = len(ti) >= 2 and len(tj) >= 2 and _overlap(ti[:3], tj[:5]) >= 0.67
+            same_start = len(ti) >= 2 and len(tj) >= 2 and ti[0] in tj[:2] and _overlap(ti[:3], tj[:5]) >= 0.67
             if same_start and utts[j]["s"] - u["e"] < 25:
                 u["decision"], u["why"] = "drop", f"restarted at #{j + 1} (same opening)"
                 for k in range(i + 1, j):  # what was said between the abandoned attempt and the restart
@@ -353,6 +365,13 @@ def decide(utts: list[dict], min_score: float = 0.4) -> None:
                 break
             if 0.35 <= r < 0.55 and u["decision"] == "keep":
                 u["why"] = f"CHECK: may repeat #{j + 1} ({r:.0%} the same)"
+        if u["decision"] == "keep" and "lost_from" in u:
+            k, lost = u.pop("lost_from")
+            u["why"] = f"CHECK: the dropped take #{k + 1} also said «{' '.join(lost[:4])}», missing here"
+        if u["decision"] == "keep":
+            grams = [tuple(ti[k:k + 3]) for k in range(len(ti) - 2)]
+            if len(grams) != len(set(grams)):
+                u["why"] = "CHECK: repeats itself inside the take (said twice without a pause)"
         if u["decision"] == "keep" and re.search(r"[ـ\-–…]\s*$", u["text"].replace("[CHECK: rough text]", "").strip()):
             u["why"] = "CHECK: stops mid-word; the next take may repeat its ending"
 
