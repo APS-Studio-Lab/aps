@@ -162,6 +162,9 @@ def transcribe_clips(clips: list[Path], work: Path, sync: dict | None = None,
     return words
 
 
+_LAST_CALL = 0.0
+
+
 def _gemini_texts(audio: np.ndarray, k: int, glossary: list[str]) -> list[str]:
     """Text of k separate stretches of speech (each followed by 1 s of silence) in one request, in order."""
     import base64
@@ -178,9 +181,15 @@ def _gemini_texts(audio: np.ndarray, k: int, glossary: list[str]) -> list[str]:
          "said (no Modern Standard Arabic, no fixing), English words in Latin script, keep false starts, "
          "repetitions and unfinished sentences. Write [unclear] for a stretch you cannot make out. "
          f'Return JSON {{"segments": [{k} strings, in order]}}. Names that may occur: ' + ", ".join(glossary))
+    import time
+    global _LAST_CALL
+    wait = 7.0 - (time.time() - _LAST_CALL)  # pace requests: the free tier allows only a few per minute
+    if wait > 0:
+        time.sleep(wait)
+    _LAST_CALL = time.time()
     r = _gemini_json([{"text": q}, {"inline_data": {"mime_type": "audio/wav",
                                                     "data": base64.b64encode(buf.getvalue()).decode()}}],
-                     "gemini-3.5-flash", timeout=180)
+                     "gemini-3.5-flash", timeout=180, tries=5)
     segs = [str(x).strip() for x in r.get("segments", [])]
     if len(segs) != k:
         raise StageError(f"Gemini returned {len(segs)} texts for {k} stretches")
@@ -331,8 +340,10 @@ def decide(utts: list[dict], min_score: float = 0.4) -> None:
             if r >= 0.55 and len(tj) >= 0.6 * len(ti):
                 u["decision"], u["why"] = "drop", f"retake: said again at #{j + 1} ({r:.0%} the same)"
                 break
-            same_start = len(ti) >= 2 and len(tj) >= 2 and ti[:2] == tj[:2]
-            if same_start and (len(ti) < len(tj) or ti[:3] == tj[:3]) and utts[j]["s"] - u["e"] < 25:
+            # same opening: the first words of this attempt start the later one too (a word like "كان" may be
+            # added in front of the restart)
+            same_start = len(ti) >= 2 and len(tj) >= 2 and _overlap(ti[:3], tj[:5]) >= 0.67
+            if same_start and utts[j]["s"] - u["e"] < 25:
                 u["decision"], u["why"] = "drop", f"restarted at #{j + 1} (same opening)"
                 for k in range(i + 1, j):  # what was said between the abandoned attempt and the restart
                     utts[k]["drop_by_restart"] = j
@@ -342,6 +353,8 @@ def decide(utts: list[dict], min_score: float = 0.4) -> None:
                 break
             if 0.35 <= r < 0.55 and u["decision"] == "keep":
                 u["why"] = f"CHECK: may repeat #{j + 1} ({r:.0%} the same)"
+        if u["decision"] == "keep" and re.search(r"[ـ\-–…]\s*$", u["text"].replace("[CHECK: rough text]", "").strip()):
+            u["why"] = "CHECK: stops mid-word; the next take may repeat its ending"
 
 
 def plan(clips_dir: Path, script: Path, out: Path, max_minutes: float | None = None) -> dict:
