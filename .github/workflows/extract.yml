@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg rclone pandoc > /dev/null
+      - run: scripts/apt.sh ffmpeg rclone pandoc
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install -q "faster-whisper>=1.0"

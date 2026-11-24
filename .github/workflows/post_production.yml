@@ -33,8 +33,7 @@ jobs:
 
       - name: System packages
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
+          scripts/apt.sh ffmpeg rclone
           ffmpeg -hide_banner -filters | grep -q zscale || (echo "ffmpeg lacks zscale (needed for HDR)"; exit 1)
 
       - uses: actions/setup-python@v5
