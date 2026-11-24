@@ -88,8 +88,11 @@ def plan(frames: list[int], track: np.ndarray, diff: np.ndarray | None, cfg: dic
         if b != a + 1 or b in inner:
             joins.append(k)
 
-    # Framing: a straight cut by default. A small punch-in (or back out) only at a cut where the body really
-    # jumps, and never sooner than min_gap_s after the previous framing change. Frequent zooms distract.
+    if cfg.get("style", "drift") == "drift":
+        return _drift(frames, track, joins, cfg)
+
+    # Framing ("cuts" style): a straight cut by default. A small punch-in (or back out) only at a cut where the
+    # body really jumps, and never sooner than min_gap_s after the previous framing change.
     z_close = float(cfg.get("punch_in", 1.06))
     min_gap = int(float(cfg.get("min_gap_s", 12)) * FPS)
     big = float(cfg.get("jump_threshold", 0.15))
@@ -125,6 +128,80 @@ def plan(frames: list[int], track: np.ndarray, diff: np.ndarray | None, cfg: dic
                     "short_segment": bool(min(seg_before, seg_after) < min_seg),
                     "treatment": ("framing change" if framing[k][0] != framing[k - 1][0] else "straight cut")
                     + (" + overlay cover suggested" if sev == "large" and framing[k][0] == framing[k - 1][0] else "")})
+    return framing, out
+
+
+def _pose_delta(track: np.ndarray, a: int, b: int) -> float | None:
+    if track[a, 4] > 0 and track[b, 4] > 0:
+        fw = max((track[a, 2] + track[b, 2]) / 2, 1.0)
+        return float((abs(track[a, 0] - track[b, 0]) + abs(track[a, 1] - track[b, 1])
+                      + abs(track[a, 2] - track[b, 2])) / fw)
+    return None
+
+
+def _drift(frames: list[int], track: np.ndarray, joins: list[int], cfg: dict) -> tuple[np.ndarray, list[dict]]:
+    """"Drift" framing: the camera is never quite still, so hard jump cuts read as camera movement.
+
+    Every push_every_s or so (and at any time in push_at_s), a quick eased push-in (push_zoom over push_s),
+    then a slow ease back to the wide shot over drift_back_s, then wide until the next push. A push starts on
+    a cut when one is near, preferring the cut with the biggest body jump. The zoom is anchored on the face,
+    held steady through each push/drift cycle so the anchor never jumps.
+    """
+    n = len(frames)
+    zp = float(cfg.get("push_zoom", 1.12))
+    push = max(1, int(float(cfg.get("push_s", 0.33)) * FPS))
+    back = max(1, int(float(cfg.get("drift_back_s", 15)) * FPS))
+    every = int(float(cfg.get("push_every_s", 22)) * FPS)
+    first = int(float(cfg.get("first_push_s", 2.0)) * FPS)
+    forced = sorted(int(float(t) * FPS) for t in cfg.get("push_at_s", []) or [])
+    jset = sorted(joins)
+
+    starts, k = [], first
+    while k < n - push:
+        f = [x for x in forced if k - every // 2 <= x < k + every // 2]
+        if f:
+            s = f[0]
+        else:  # the best cut within ±3 s of the planned time, else the planned time itself
+            near = [j for j in jset if abs(j - k) <= 3 * FPS]
+            s = max(near, key=lambda j: _pose_delta(track, frames[j - 1], frames[j]) or 0) if near else k
+        if starts and s - starts[-1] < push + back // 2:
+            s = starts[-1] + push + back // 2
+        starts.append(s)
+        k = s + every
+    for x in forced:
+        if all(abs(x - s) > push + FPS for s in starts):
+            starts.append(x)
+    starts = sorted(starts)
+
+    ok = track[:, 4] > 0
+    zoom = np.ones(n, np.float32)
+    cx = np.full(n, 960.0, np.float32)
+    cy = np.full(n, 400.0, np.float32)
+    for i, s in enumerate(starts):
+        e = min(n, starts[i + 1] if i + 1 < len(starts) else n)
+        ramp_end = min(e, s + push)
+        for q in range(s, e):
+            if q < ramp_end:
+                u = (q - s + 1) / push
+                zoom[q] = 1 + (zp - 1) * (u * u * (3 - 2 * u))
+            else:
+                u = min(1.0, (q - ramp_end) / back)
+                zoom[q] = 1 + (zp - 1) * (1 - u * u * (3 - 2 * u))
+        src = [frames[q] for q in range(s, min(e, s + 3 * FPS)) if ok[frames[q]]]
+        if src:
+            cx[s:e], cy[s:e] = float(np.median(track[src, 0])), float(np.median(track[src, 1]))
+    framing = np.stack([zoom, cx, cy], 1).astype(np.float32)
+
+    bounds = [0] + joins + [n]
+    min_seg = int(float(cfg.get("min_segment_s", 0.8)) * FPS)
+    out = []
+    for k in joins:
+        d = _pose_delta(track, frames[k - 1], frames[k])
+        sev = "unknown" if d is None else "small" if d < 0.06 else "medium" if d < 0.15 else "large"
+        i = bounds.index(k)
+        out.append({"t": round(k / FPS, 2), "severity": sev, "pose_delta": None if d is None else round(d, 3),
+                    "short_segment": bool(min(k - bounds[i - 1], bounds[i + 1] - k) < min_seg),
+                    "treatment": "push-in" if k in starts else ("cut in drift" if zoom[k] > 1.001 else "cut wide")})
     return framing, out
 
 

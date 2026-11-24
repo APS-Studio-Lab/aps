@@ -68,6 +68,12 @@ def _blend_rgba(base: np.ndarray, rgba: np.ndarray, x: int, y: int, opacity: flo
     base[y:y + h, x:x + w] = base[y:y + h, x:x + w] * (1 - a) + rgba[..., :3] * a
 
 
+def _snap(framing: np.ndarray, i: int) -> bool:
+    """A framing jump (a reframe on a cut), as opposed to the smooth per-frame change of a drift."""
+    a, b = framing[i - 1], framing[i]
+    return bool(abs(b[0] - a[0]) > 0.015 or abs(b[1] - a[1]) > 4 or abs(b[2] - a[2]) > 4)
+
+
 def _punch(img: np.ndarray, z: float, px: float, py: float) -> np.ndarray:
     """Punch in by z around (px, py): that point stays put, everything else scales. Like a camera zoom."""
     if z <= 1.0001:
@@ -161,8 +167,7 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
             if logo is not None:
                 _blend_rgba(Hf, logo, 60, 60, 0.9)
 
-            if framing is not None and first_out_index + k > 0 and \
-                    np.any(framing[first_out_index + k] != framing[first_out_index + k - 1]):
+            if framing is not None and first_out_index + k > 0 and _snap(framing, first_out_index + k):
                 cx_s = None  # a cut: reframe the short at once instead of drifting across
             cx = track[n_src, 0] if track[n_src, 4] > 0 else (cx_s or 960.0)
             cx_s = cx if cx_s is None else (cx_s + 0.04 * (cx - cx_s) if abs(cx - cx_s) > 25 else cx_s)
@@ -219,7 +224,7 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
         # a couple of frames, so the small body jump reads as motion instead of a pop
         n = layers.soft_cut_frames
         if n and k > 0 and frames[k] != frames[k - 1] + 1 and prev_H is not None and \
-                (framing is None or np.all(framing[first_out_index + k] == framing[first_out_index + k - 1])):
+                (framing is None or not _snap(framing, first_out_index + k)):
             soft_left, held_H, held_V = n, prev_H, prev_V
         if soft_left:
             w = 1 - soft_left / (n + 1)

@@ -50,8 +50,17 @@ output:
 # in the report as places to cover with an insert.
 joins:
   enabled: true
-  punch_in: 1.06        # small punch-in, only at a cut where the body really jumps
-  min_gap_s: 12         # never two framing changes closer than this
+  style: drift          # drift (default): the camera is never quite still, so hard jump cuts read as movement:
+                        #   a quick eased push-in, then a slow ease back to wide, then wide until the next one
+  push_zoom: 1.12       # how far each push goes (1.12 = 12%)
+  push_s: 0.33          # how fast the push-in is
+  drift_back_s: 15      # how slowly it eases back to the wide shot
+  push_every_s: 22      # about how often (snapped to the best cut within 3 s)
+  first_push_s: 2.0
+  push_at_s: []         # extra pushes at these program times (emphasis lines from the episode plan)
+  # style: cuts         # the older rule: a straight cut, punch_in only on a big body jump
+  punch_in: 1.06        # (cuts style) small punch-in, only at a cut where the body really jumps
+  min_gap_s: 12         # (cuts style) never two framing changes closer than this
   soft_cut_frames: 2    # removed pause inside a take: a 2-frame dissolve instead of a hard pop
   jump_threshold: 0.15  # how big a body jump must be (share of face width) to earn a punch-in
   min_segment_s: 0.8    # shorter pieces are flagged in the report
