@@ -5,6 +5,10 @@ on:
       path:
         description: "Path under the studio folder, e.g. 01_Inbox/E3/E3.mp4"
         required: true
+      vf:
+        description: "Optional ffmpeg filter for the frames instead of the 360p scale, e.g. crop=iw/2:ih/2:iw/4:ih/3"
+        required: false
+        default: ""
       times:
         description: "Optional space-separated seconds to grab frames at (instead of 5 spread frames)"
         required: false
@@ -23,7 +27,7 @@ jobs:
         env: { RCLONE_CONF: "${{ secrets.RCLONE_CONF }}" }
         run: mkdir -p ~/.config/rclone && printf '%s' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
       - name: Probe
-        env: { P: "${{ inputs.path }}", TIMES: "${{ inputs.times }}" }
+        env: { P: "${{ inputs.path }}", TIMES: "${{ inputs.times }}", VF: "${{ inputs.vf }}" }
         run: |
           set -e
           rclone copyto "gdrive:$STUDIO_ROOT/$P" in.media
@@ -32,7 +36,7 @@ jobs:
           D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 in.media)
           mkdir frames
           if [ -n "$TIMES" ]; then
-            for t in $TIMES; do ffmpeg -v error -ss $t -i in.media -frames:v 1 -vf scale=-2:360 frames/t_$t.jpg; done
+            for t in $TIMES; do ffmpeg -v error -ss $t -i in.media -frames:v 1 -q:v 2 -vf "${VF:-scale=-2:360}" frames/t_$t.jpg; done
             python3 scripts/contact_sheet.py
           else
           for f in 0.05 0.25 0.5 0.75 0.95; do t=$(python3 -c "print($D*$f)"); ffmpeg -v error -ss $t -i in.media -frames:v 1 -vf "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p,scale=-2:540" frames/f_$f.jpg || ffmpeg -v error -ss $t -i in.media -frames:v 1 -vf scale=-2:540 frames/f_$f.jpg; done
