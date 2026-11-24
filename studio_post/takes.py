@@ -172,8 +172,9 @@ def _gemini_texts(audio: np.ndarray, k: int, glossary: list[str]) -> list[str]:
     with wave.open(buf, "wb") as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
         w.writeframes((np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes())
-    q = (f"This audio holds exactly {k} separate stretches of speech by one Egyptian presenter, each followed by "
-         "one second of silence. Transcribe EACH stretch exactly as spoken: Egyptian Arabic in Arabic script as "
+    q = (f"This audio holds exactly {k} separate stretches of speech by one Egyptian presenter. Each stretch "
+         "ends with a short BEEP tone: the beep is the only boundary, a pause inside a stretch is not a boundary. "
+         "Transcribe EACH stretch exactly as spoken: Egyptian Arabic in Arabic script as "
          "said (no Modern Standard Arabic, no fixing), English words in Latin script, keep false starts, "
          "repetitions and unfinished sentences. Write [unclear] for a stretch you cannot make out. "
          f'Return JSON {{"segments": [{k} strings, in order]}}. Names that may occur: ' + ", ".join(glossary))
@@ -209,7 +210,12 @@ def gemini_takes(clips: list[Path], work: Path, sync: dict, limit: float | None,
                 tk[-1][1] = sp[1]
             else:
                 tk.append(list(sp))
-        sil = np.zeros(16000, np.float32)
+        t = np.arange(int(0.3 * 16000)) / 16000
+        sil = np.concatenate([np.zeros(4000, np.float32), (0.25 * np.sin(2 * np.pi * 880 * t)).astype(np.float32),
+                              np.zeros(4000, np.float32)])  # silence, beep, silence: an unmistakable boundary
+        # Whisper's words (exact timing, rougher text) check that Gemini's texts landed on the right takes
+        wh = transcribe_clips([c], work / f"w{ci}", sync, limit)
+        wtext = [" ".join(w["w"] for w in wh if a - 0.2 <= w["s"] <= b + 0.2) for a, b in tk]
         i = 0
         while i < len(tk):
             batch, dur = [], 0.0
@@ -223,6 +229,15 @@ def gemini_takes(clips: list[Path], work: Path, sync: dict, limit: float | None,
                     texts = _gemini_texts(audio, len(batch), gloss)
                 except Exception as e:
                     raise StageError(f"Gemini transcription failed: {e}")
+            i0 = i - len(batch)
+            sims = [_overlap([norm(w) for w in wtext[i0 + q].split()], [norm(w) for w in texts[q].split()])
+                    for q in range(len(batch))]
+            shifted = [max(_overlap([norm(w) for w in wtext[i0 + q].split()],
+                                    [norm(w) for w in texts[q + d].split()]) for d in (-1, 1)
+                           if 0 <= q + d < len(batch)) if len(batch) > 1 else 0 for q in range(len(batch))]
+            bad = sum(1 for a_, b_ in zip(sims, shifted) if a_ < 0.25 and b_ > a_ + 0.2)
+            if bad >= 2:  # texts slid onto the neighbouring takes: use Whisper's text for this batch
+                texts = [f"{wtext[i0 + q]} [CHECK: rough text]" for q in range(len(batch))]
             for (a, b), t in zip(batch, texts):
                 ws = [{"w": w, "ci": ci, "clip": c.name, "s": a, "e": b} for w in t.split()]
                 out.append({"clip": c.name, "ci": ci, "s": round(a, 2), "e": round(b, 2), "text": t, "words": ws})
@@ -292,6 +307,8 @@ def decide(utts: list[dict], min_score: float = 0.4) -> None:
         ti = toks[i]
         if "unclear" in u["text"].lower() or not ti:
             u["why"] = "CHECK: speech the transcript could not make out"; continue
+        if "[CHECK" in u["text"]:
+            u["why"] = "CHECK: rough text"
         if len(ti) <= 4 and any(norm(m) in set(ti) for m in META):
             u["decision"], u["why"] = "drop", "meta (instruction to self)"; continue
         if len(ti) <= 1:
