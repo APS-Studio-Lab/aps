@@ -48,7 +48,15 @@ class Keyer:
             core = (lab == 1 + np.argmax(st[1:, cv2.CC_STAT_AREA])).astype(np.uint8)
         ff = core.copy()
         cv2.floodFill(ff, np.zeros((542, 962), np.uint8), (0, 0), 1)
-        filled = core | (ff == 0).astype(np.uint8)
+        # Fill holes inside the presenter (specks in a dark shirt, glasses) but NOT the green seen through a
+        # loop of arm and body: those holes are screen, and filling them left a grey/brown patch.
+        holes = ((ff == 0) & (core == 0)).astype(np.uint8)
+        filled = core.copy()
+        nh, hl, hst, _ = cv2.connectedComponentsWithStats(holes, 8)
+        for k in range(1, nh):
+            m = hl == k
+            if hst[k, cv2.CC_STAT_AREA] < 150 or float(np.median(ratio[m])) < self.lo:
+                filled[m] = 1
         a = np.maximum(a, cv2.erode(filled, self._k9).astype(np.float32)) * cv2.dilate(filled, self._k15)
         a = cv2.resize(a, (W, H), interpolation=cv2.INTER_LINEAR)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255
