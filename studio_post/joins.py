@@ -238,9 +238,13 @@ def _vad_gaps(x: np.ndarray, sr: int, t0: float, t1: float, min_len: float):
         y = seg[:len(seg) // k * k].reshape(-1, k).mean(1)
     else:
         y = np.interp(np.arange(0, len(seg) / sr, 1 / 16000), np.arange(len(seg)) / sr, seg)
-    opts = VadOptions(threshold=0.45, min_silence_duration_ms=int(min_len * 1000), speech_pad_ms=30,
-                      min_speech_duration_ms=60)
-    sp = get_speech_timestamps(y.astype(np.float32), opts)
+    try:
+        opts = VadOptions(threshold=0.45, min_silence_duration_ms=int(min_len * 1000), speech_pad_ms=30,
+                          min_speech_duration_ms=60)
+        sp = get_speech_timestamps(y.astype(np.float32), opts)
+    except Exception as e:  # the report shows "energy" as the detector when this happens
+        print(f"note: voice detector unavailable ({e}); pauses found from loudness", flush=True)
+        return None
     t_a = a / sr
     spans = [(t_a + d["start"] / 16000, t_a + d["end"] / 16000) for d in sp]
     gaps = [(e0, s1) for (_, e0), (s1, _) in zip(spans, spans[1:]) if s1 - e0 >= min_len]
