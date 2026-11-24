@@ -11,7 +11,7 @@ def cut_and_master(program: Path, takes: list[tuple[int, int]], work: Path, lufs
     script = work / "aselect.txt"
     script.write_text(f"aselect='{parts}',asetpts=N/SR/TB")
     cut = work / "voice_cut.wav"
-    run(["ffmpeg", "-v", "error", "-y", "-i", str(program), "-filter_script:a", str(script), str(cut)])
+    run(["ffmpeg", "-v", "error", "-y", "-i", str(program), "-/filter:a", str(script), str(cut)])
     master = work / "voice_master.wav"
     run(["ffmpeg", "-v", "error", "-y", "-i", str(cut), "-af",
          f"highpass=f=80,acompressor=threshold=-20dB:ratio=3:attack=5:release=120:makeup=2,"
