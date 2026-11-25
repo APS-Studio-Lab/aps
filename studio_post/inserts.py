@@ -105,7 +105,7 @@ def _bake(browser, kind: str, data: dict, work: Path, tag: str, vertical: bool) 
 
 
 def _over_video(bg: Path, layer: Path, out: Path, w: int, h: int, seconds: float, soft: float = 2.0,
-                shift: float = 0.0) -> Path:
+                shift: float = 0.0, start: float = 0.0) -> Path:
     """Composite a transparent motion layer over a moving clip (looped if short, cover-cropped, 30 fps)."""
     import subprocess
     from .util import FPS
@@ -130,7 +130,7 @@ def _over_video(bg: Path, layer: Path, out: Path, w: int, h: int, seconds: float
     vf = (f"[0:v]fps={FPS},scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h},"
           f"setsar=1,gblur=sigma={soft:.1f},eq=saturation=0.92{move},format=rgb24[{'b0' if sx else 'b'}];"
           f"{grad_in}[b][1:v]overlay=0:0:format=auto,format=yuv420p[o]")
-    p = subprocess.run(["ffmpeg", "-v", "error", "-y", "-stream_loop", "-1", "-i", str(bg), "-i", str(layer)] + extra +
+    p = subprocess.run(["ffmpeg", "-v", "error", "-y", "-stream_loop", "-1", "-ss", f"{start:.3f}", "-i", str(bg), "-i", str(layer)] + extra +
                        ["-filter_complex", vf, "-map", "[o]", "-t", f"{seconds:.3f}", "-an",
                         "-c:v", "libx264", "-preset", "medium", "-crf", "14", str(out)], capture_output=True)
     if p.returncode:
@@ -161,7 +161,8 @@ def render(browser, kind: str, data: dict, seconds: float, work: Path, tag: str)
             layer = browser.capture_overlay(page, work / f"insert_{tag}_{o}_layer.mov", w, h, seconds)
             outs.append(_over_video(bg, layer, work / f"insert_{tag}_{o}.mp4", w, h, seconds,
                                     float(data.get("bg_soft", 2.0)) * w / 1920,
-                                    0.0 if vertical else float(data.get("bg_shift", 0.0))))
+                                    0.0 if vertical else float(data.get("bg_shift", 0.0)),
+                                    float(data.get("bg_start", 0.0))))
         else:
             outs.append(browser.capture_animation(page, work / f"insert_{tag}_{o}.mp4", w, h, seconds))
     return outs[0], outs[1]

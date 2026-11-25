@@ -47,6 +47,7 @@ def _with_audio(video: Path, b: dict, bg: Path | None, out: Path) -> Path:
         if not bg:
             raise StageError("break audio 'clip' needs a bg_video")
         src = bg
+        b = dict(b, audio_start=b.get("audio_start", b.get("bg_start", 0)))
     if src:
         src = Path(src)
         if not src.exists():
@@ -101,6 +102,8 @@ def prepare(br, items: list[dict], words: list[dict] | None, find_phrase, base_p
                 if key == "bg_video":
                     bg = f
                 data[key] = f.resolve().as_uri()
+        if b.get("bg_start") is not None:
+            data["bg_start"] = b["bg_start"]
         if b.get("audio") and b["audio"] != "clip":
             b = dict(b, audio=str(base_path(b["audio"])))
         h, v = inserts.render(br, b["insert"], data, float(b["seconds"]), work, f"brk{i}")
