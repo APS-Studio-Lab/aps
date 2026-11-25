@@ -35,16 +35,6 @@ jobs:
           echo "::add-mask::$P"; echo "::add-mask::$O"
           rclone copyto "gdrive:$STUDIO_ROOT/$P" in.media -q
           mkdir -p out
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          from studio_post.captions import transcribe, phrases
-          o = os.environ["O"]
-          words = transcribe(Path("in.media"), Path(f"out/{o}.words.json"))
-          lines = [f"{p[0]['start']:8.2f} {p[-1]['end']:8.2f}  " + " ".join(w["w"] for w in p)
-                   for p in phrases(words, max_words=10, max_s=6.0, gap_s=0.5)]
-          Path(f"out/{o}.words.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-          print("words:", len(words))
-          PY
+          python scripts/transcribe.py in.media "out/$O"
           rclone copy out "gdrive:$STUDIO_ROOT/02_Renders/_transcripts" -q
           echo done
