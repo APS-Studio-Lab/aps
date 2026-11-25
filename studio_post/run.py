@@ -156,6 +156,21 @@ def _beats(words: list[dict], beats: dict, at: float, end: float = 1e9) -> dict:
     return out
 
 
+def _gfx(task):
+    """Render one graphic (both orientations) on its own browser; runs in a worker process."""
+    kind, a, b, secs, work, tag = task
+    work = Path(work)
+    with Browser() as br:
+        if kind == "overlay":
+            h, v = overlays.render(br, a, b, secs, work, tag)
+        elif kind == "insert":
+            h, v = inserts.render(br, a, b, secs, work, tag)
+        else:
+            h = br.capture_animation(Path(a), work / f"cut{tag}_h.mp4", 1920, 1080, secs)
+            v = br.capture_animation(Path(b), work / f"cut{tag}_v.mp4", 1080, 1920, secs)
+    return str(h), str(v)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("job")
@@ -356,8 +371,8 @@ def main(argv=None):
                     if not f.exists():
                         raise StageError(f"overlay {i} ({c['overlay']}): file not found: {f}")
                     data["photo"] = f.resolve().as_uri()
-                h, v = overlays.render(br, c["overlay"], data, secs, work, str(i))
-                cutaways.append({"start_s": at, "end_s": at + secs, "h": h, "v": v, "kind": c["overlay"], "overlay": True})
+                cutaways.append({"start_s": at, "end_s": at + secs, "h": None, "v": None, "kind": c["overlay"], "overlay": True,
+                                 "_task": ("overlay", c["overlay"], data, secs, str(work), str(i))})
                 if c.get("slide", 150):  # cards sit on the left: the presenter steps right to make room
                     slides.append((at, at + secs, float(c.get("slide", 150)) * (1 if c.get("side", "left") == "left" else -1)))
                 report.setdefault("overlays", {})[f"{at:7.2f}s"] = f"{c['overlay']} ({secs:.1f}s)"
@@ -370,16 +385,24 @@ def main(argv=None):
                         if not f.exists():
                             raise StageError(f"insert {i} ({c['insert']}): file not found: {f}")
                         data[key] = f.resolve().as_uri()
-                h, v = inserts.render(br, c["insert"], data, secs, work, str(i))
+                task = ("insert", c["insert"], data, secs, str(work), str(i))
             else:
-                h = br.capture_animation(_path(c["graphic_h"], REPO), work / f"cut{i}_h.mp4", 1920, 1080, secs)
-                v = br.capture_animation(_path(c["graphic_v"], REPO), work / f"cut{i}_v.mp4", 1080, 1920, secs)
-            cutaways.append({"start_s": at, "end_s": at + secs, "h": h, "v": v, "kind": c.get("insert", "graphic")})
-            pen = work / f"insert_{i}_pen.wav"
-            if pen.exists():  # the pen is heard under his voice while the graphic draws
-                from . import pensfx
-                pensfx.mix_into(master_wav, pen, at)
+                task = ("graphic", str(_path(c["graphic_h"], REPO)), str(_path(c["graphic_v"], REPO)), secs, str(work), str(i))
+            cutaways.append({"start_s": at, "end_s": at + secs, "h": None, "v": None, "kind": c.get("insert", "graphic"),
+                             "_task": task, "_pen": work / f"insert_{i}_pen.wav"})
             report.setdefault("inserts", {})[f"{at:7.2f}s"] = f"{c.get('insert', 'graphic')} ({secs:.1f}s)"
+        # the graphics are independent pages: render them on several browsers at once (each frame is a screenshot)
+        todo = [c for c in cutaways if c.get("_task")]
+        if todo:
+            with ProcessPoolExecutor(max(1, min(len(todo), int(cfg.get("graphics_workers", 3))))) as ex:
+                for c, (h, v) in zip(todo, ex.map(_gfx, [c["_task"] for c in todo])):
+                    c["h"], c["v"] = Path(h), Path(v)
+                    c.pop("_task")
+        for c in cutaways:
+            pen = c.pop("_pen", None)
+            if pen and pen.exists():  # the pen is heard under his voice while the graphic draws
+                from . import pensfx
+                pensfx.mix_into(master_wav, pen, c["start_s"])
         brk = breaks.prepare(br, cfg.get("breaks", []), words, _find_phrase, lambda p: _path(p, base), inserts,
                              work, report) if cfg.get("breaks") else []
     import cv2

@@ -120,7 +120,7 @@ class Browser:
             raise StageError(f"{html_file} does not define window.render(t)")
         for i in range(n):
             page.evaluate(f"window.render({i / FPS})")
-            ff.stdin.write(page.screenshot(type="png"))
+            ff.stdin.write(page.screenshot(type="jpeg", quality=95))   # opaque frames: JPEG is ~3x faster than PNG
         page.close()
         ff.stdin.close()
         if ff.wait() != 0:
