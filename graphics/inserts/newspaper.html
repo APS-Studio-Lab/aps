@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="inserts.css">
+<!-- A newspaper page in black ink on a transparent page, to be printed onto running paper (printtrack).
+     Only the masthead, kicker and headline are words (from D); body columns are greeked lines (no invented
+     news). D: masthead, kicker, headline -->
+<style>
+html,body{background:transparent!important;color:#000}
+#pg{position:absolute;inset:3% 4%;direction:rtl;display:flex;flex-direction:column}
+.mast{font:700 calc(var(--u)*120)/1.1 Amiri;text-align:center}
+.bar{border-top:calc(var(--u)*6) solid #000;border-bottom:calc(var(--u)*2) solid #000;height:calc(var(--u)*10);margin:calc(var(--u)*8) 0}
+.kick{font:calc(var(--u)*46) AmiriR;text-align:center;margin-top:calc(var(--u)*10)}
+.head{font:700 calc(var(--u)*128)/1.15 Amiri;text-align:center;margin:calc(var(--u)*6) 0 calc(var(--u)*16)}
+.cols{display:flex;gap:4%;flex:1;border-top:calc(var(--u)*3) solid #000;padding-top:calc(var(--u)*18)}
+.col{flex:1;display:flex;flex-direction:column;gap:calc(var(--u)*13)}
+.ln{height:calc(var(--u)*7);background:#000;opacity:.5;border-radius:1px}
+.ph{height:calc(var(--u)*260);background:radial-gradient(circle,#000 1.6px,transparent 2.2px) 0 0/7px 7px;opacity:.6;margin-bottom:calc(var(--u)*10)}
+.sh{height:calc(var(--u)*20);background:#000;width:70%;align-self:flex-end;margin:calc(var(--u)*10) 0}
+</style></head>
+<body><div id="pg">
+  <div class="mast" id="ms"></div><div class="bar"></div>
+  <div class="kick" id="kk"></div><div class="head" id="hd"></div>
+  <div class="cols" id="cols"></div>
+</div>
+<script>/*DATA*/</script>
+<script src="inserts.js"></script>
+<script>
+$("ms").textContent = D.masthead || ""; $("kk").textContent = D.kicker || ""; $("hd").textContent = D.headline || "";
+const r = rng(D.seed || 3);
+for (let c = 0; c < 4; c++) {
+  const col = el("div", "col", $("cols"));
+  if (c === 1) el("div", "ph", col);
+  for (let i = 0; i < 40; i++) {
+    if (r() < .07) { el("div", "sh", col); continue; }
+    const l = el("div", "ln", col); l.style.width = (i % 7 === 6 ? 40 + r() * 30 : 88 + r() * 12) + "%"; l.style.alignSelf = "flex-end";
+  }
+}
+window.render = () => {};
+</script></body></html>
