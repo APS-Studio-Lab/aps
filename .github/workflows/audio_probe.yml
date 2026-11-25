@@ -44,6 +44,7 @@ jobs:
           ffmpeg -v error -ss "$S" -t "$D" -i in.media -vn -ac 1 -ar 48000 ${AF:+-af "$AF"} -c:a pcm_s16le out/a.wav
           ffprobe -v error -show_entries stream=codec_name,sample_rate,channels,bit_rate -select_streams a -of default=nw=1 in.media
           python3 scripts/audio_probe.py out/a.wav "$S" out
+          python3 antigravity/montage/pauses.py find out/a.wav --out out/pauses
           rm out/a.wav
           rclone copy out "gdrive:$STUDIO_ROOT/02_Renders/_probe_audio" -q
           echo done
