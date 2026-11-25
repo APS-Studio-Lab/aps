@@ -4,8 +4,9 @@ usage: fetch_commons.py OUTDIR "File:A.pdf|page" ...   Refuses anything whose li
 import json, re, sys, urllib.parse, urllib.request
 from pathlib import Path
 UA = {"User-Agent": "studio-post/1.0 (brand kit fetch)"}
-FREE = re.compile(r"^(cc0|public domain|pd|cc[ -]by(-sa)?[ -]\d(\.\d)?)", re.I)
+FREE = re.compile(r"^(cc0|public domain|pd|no restrictions|cc[ -]by(-sa)?[ -]\d(\.\d)?)", re.I)  # "No restrictions" = Flickr Commons, pre-1929 works
 out = Path(sys.argv[1]); out.mkdir(parents=True, exist_ok=True)
+import hashlib
 for k, item in enumerate(sys.argv[2:], 1):
     title, _, page = item.partition("|")
     q = {"action": "query", "titles": title, "prop": "imageinfo", "format": "json",
@@ -20,6 +21,6 @@ for k, item in enumerate(sys.argv[2:], 1):
         print(f"item {k}: licence not free, skipped"); continue
     url = ii.get("thumburl") or ii["url"]
     with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=120) as r:
-        (out / f"commons_{k}.jpg").write_bytes(r.read())
-    (out / f"commons_{k}.txt").write_text(f"{title} page {page or 1}\nlicence: {lic}\nsource: {ii['descriptionurl']}\n")
+        (out / f"commons_{hashlib.md5(title.encode()).hexdigest()[:8]}.jpg").write_bytes(r.read())
+    (out / f"commons_{hashlib.md5(title.encode()).hexdigest()[:8]}.txt").write_text(f"{title} page {page or 1}\nlicence: {lic}\nsource: {ii['descriptionurl']}\n")
     print(f"item {k}: ok")
