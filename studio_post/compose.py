@@ -181,10 +181,11 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
             f = np.clip(f, 0, 1)
 
             shift = layers.host_shift_x
-            for s0, s1, dx in layers.slides:  # eased slide aside while a card is beside the presenter
-                if s0 - 0.6 < t < s1 + 0.6:
-                    u = min(1.0, (t - (s0 - 0.6)) / 0.6, ((s1 + 0.6) - t) / 0.6)
-                    shift += dx * (u * u * (3 - 2 * u))
+            cam = 0.0  # a camera move (set AND presenter together) to make room for a card beside him
+            for s0, s1, dx in layers.slides:
+                if s0 - 0.7 < t < s1 + 0.7:
+                    u = min(1.0, (t - (s0 - 0.7)) / 0.7, ((s1 + 0.7) - t) / 0.7)
+                    cam += dx * (u * u * (3 - 2 * u))
             M = np.float32([[1, 0, shift], [0, 1, 0]])
             fh, ah = cv2.warpAffine(f, M, (1920, 1080)), cv2.warpAffine(a, M, (1920, 1080))[..., None]
             edge = cv2.GaussianBlur(1 - ah[..., 0], (0, 0), 6)[..., None] * ah
@@ -194,6 +195,10 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
             if framing is not None:
                 z, fx, fy = framing[first_out_index + k]
                 Hc = _punch(Hc, float(z), float(fx) + shift, float(fy))
+            if cam:  # pan + just enough push-in that the frame edges never show
+                zc = 1 + abs(cam) / 960 + 0.004
+                A2 = np.float32([[zc, 0, 960 - 960 * zc + cam], [0, zc, 540 - 540 * zc]])
+                Hc = cv2.warpAffine(Hc, A2, (1920, 1080), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
             Hf = fin_h.apply(Hc, first_out_index + k)
             if logo is not None:
                 _blend_rgba(Hf, logo, 60, 60, 0.9)

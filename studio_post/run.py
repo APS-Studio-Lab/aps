@@ -306,8 +306,8 @@ def main(argv=None):
                     data["photo"] = f.resolve().as_uri()
                 h, v = overlays.render(br, c["overlay"], data, secs, work, str(i))
                 cutaways.append({"start_s": at, "end_s": at + secs, "h": h, "v": v, "kind": c["overlay"], "overlay": True})
-                if c.get("slide", 220):  # cards sit on the left: the presenter steps right to make room
-                    slides.append((at, at + secs, float(c.get("slide", 220)) * (1 if c.get("side", "left") == "left" else -1)))
+                if c.get("slide", 150):  # cards sit on the left: the presenter steps right to make room
+                    slides.append((at, at + secs, float(c.get("slide", 150)) * (1 if c.get("side", "left") == "left" else -1)))
                 report.setdefault("overlays", {})[f"{at:7.2f}s"] = f"{c['overlay']} ({secs:.1f}s)"
                 continue
             if "insert" in c:  # archive insert: template + data (graphics/inserts/<type>.html)
