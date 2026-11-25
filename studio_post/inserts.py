@@ -152,6 +152,11 @@ def render(browser, kind: str, data: dict, seconds: float, work: Path, tag: str)
         if kind == "chapter" and not bg:
             d["baked"] = _bake(browser, kind, data, work, tag, vertical)
         page = _page(kind, d, work, f"{tag}_{o}")
+        if not vertical and kind == "explainer" and data.get("pen_sound", True):
+            from . import pensfx  # the pen's scratch under each stroke and word (mixed in by the pipeline)
+            ev = pensfx.events_from_page(browser, page, w, h)
+            if ev:
+                pensfx.render(ev, seconds, work / f"insert_{tag}_pen.wav", float(data.get("pen_db", -15)))
         if bg:
             layer = browser.capture_overlay(page, work / f"insert_{tag}_{o}_layer.mov", w, h, seconds)
             outs.append(_over_video(bg, layer, work / f"insert_{tag}_{o}.mp4", w, h, seconds,

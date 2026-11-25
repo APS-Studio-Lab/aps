@@ -26,6 +26,9 @@ body.paper .lbl.red{color:#a3150e}
 body.paper .lbl.dim{color:#4a3d2c}
 body.paper .dotc{fill:#231a10;mix-blend-mode:multiply}
 body.paper .dotc.red{fill:#a3150e}
+/* paper: the light falls evenly, only the far corners settle into shadow (no hard spotlight) */
+body.paper .lamp{background:radial-gradient(ellipse 140% 130% at 50% 45%,rgba(255,214,160,.05) 0%,rgba(0,0,0,0) 45%,rgba(40,25,10,.16) 100%)}
+body.paper .vignette{background:radial-gradient(ellipse 150% 140% at 50% 50%,rgba(0,0,0,0) 55%,rgba(0,0,0,.22) 100%)}
 </style></head>
 <body>
 <div id="dim"></div>
@@ -93,7 +96,8 @@ for (const s of steps) {
       `direction:${arabic ? "rtl" : "ltr"};transform:translate(${a === "start" ? 0 : a === "end" ? -100 : -50}%,-78%)`;
     tx.textContent = s.s;
     if (s.id) byId[s.id] = tx;
-    items.push({ s, e: tx });
+    // written on like a pen: revealed in the reading direction, as long as the word takes to write
+    items.push({ s, e: tx, write: Math.min(1.1, Math.max(.25, .055 * s.s.length)), rtl: arabic });
   }
 }
 // strike-throughs measured on the words they cross, every frame (so they always fit the word as set)
@@ -111,6 +115,10 @@ function fitStrikes() {
   }
   board.style.transform = bs;
 }
+// the pen's sound follows the ink: one event per stroke, word and dot (read by the pipeline)
+window.SFX = items.map((it) => it.draw ? { t: it.s.t, dur: it.s.dur || .5, kind: "line" }
+  : it.write ? { t: it.s.t, dur: it.write, kind: "write" } : { t: it.s.t, dur: .06, kind: "tap" })
+  .filter((e) => e.t >= 0 && e.t < DUR);
 window.render = (t) => {
   board.style.transform = "none"; fitStrikes();
   dark.style.opacity = PAPER ? 0 : Math.max(1 - eOut(seg(t, 0, .3)), seg(t, DUR - .3, DUR));
@@ -120,6 +128,11 @@ window.render = (t) => {
   for (const it of items) {
     const t0 = it.s.t;
     if (it.draw) drawPath(it.e, t, t0, it.s.dur || .5);
+    else if (it.write) {
+      const k = clamp((t - t0) / it.write);
+      it.e.style.opacity = (it.s.dim ? .85 : 1) * clamp((t - t0) / .08);
+      it.e.style.clipPath = k >= 1 ? "none" : (it.rtl ? `inset(-20% 0 -20% ${(1 - k) * 100}%)` : `inset(-20% ${(1 - k) * 100}% -20% 0)`);
+    }
     else it.e.style.opacity = (it.s.dim ? .85 : 1) * clamp((t - t0) / .22);
   }
 };

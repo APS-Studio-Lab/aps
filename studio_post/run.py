@@ -375,6 +375,10 @@ def main(argv=None):
                 h = br.capture_animation(_path(c["graphic_h"], REPO), work / f"cut{i}_h.mp4", 1920, 1080, secs)
                 v = br.capture_animation(_path(c["graphic_v"], REPO), work / f"cut{i}_v.mp4", 1080, 1920, secs)
             cutaways.append({"start_s": at, "end_s": at + secs, "h": h, "v": v, "kind": c.get("insert", "graphic")})
+            pen = work / f"insert_{i}_pen.wav"
+            if pen.exists():  # the pen is heard under his voice while the graphic draws
+                from . import pensfx
+                pensfx.mix_into(master_wav, pen, at)
             report.setdefault("inserts", {})[f"{at:7.2f}s"] = f"{c.get('insert', 'graphic')} ({secs:.1f}s)"
         brk = breaks.prepare(br, cfg.get("breaks", []), words, _find_phrase, lambda p: _path(p, base), inserts,
                              work, report) if cfg.get("breaks") else []
