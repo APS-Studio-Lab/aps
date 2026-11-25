@@ -1,0 +1,47 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="inserts.css">
+<!-- Type to be PRINTED onto a moving surface (studio_post/printtrack.py): black ink on a transparent page,
+     sized to the surface. D.blocks: [{kind:"logo"|"text"|"num", value, size}] stacked and centred.
+     Reveal: each block (and each word of a text) soaks in from a soft blot to sharp ink. -->
+<style>
+html,body{background:transparent!important}
+#c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:5% 7%;text-align:center;direction:rtl;color:#000}
+.t{font-family:Amiri;font-weight:700;line-height:1.3}
+.r{font-family:AmiriR;line-height:1.4}
+.ty{font-family:Typewriter}
+img{display:block}
+.w{display:inline-block}
+</style></head>
+<body><div id="c"></div>
+<script>/*DATA*/</script>
+<script src="inserts.js"></script>
+<script>
+const c = document.getElementById("c");
+const H = innerHeight;
+const items = [];
+for (const b of D.blocks || []) {
+  let e;
+  if (b.kind === "logo") { e = el("img", "", c); e.src = b.value; e.style.width = (b.size || 70) + "%"; e.style.filter = "brightness(0)"; }
+  else {
+    e = el("div", b.font === "type" ? "ty" : b.font === "regular" ? "r" : "t", c);
+    e.style.fontSize = (b.size || 10) * H / 100 + "px";
+    if (b.gap) e.style.marginTop = b.gap * H / 100 + "px";
+    e.innerHTML = String(b.value).split(/\s+/).map((w) => `<span class="w">${w}</span>`).join(" ");
+  }
+  items.push({ e, at: b.at || 0, per: b.per ?? .12 });
+}
+window.render = (t) => {
+  for (const it of items) {
+    const parts = it.e.tagName === "IMG" ? [it.e] : [...it.e.querySelectorAll(".w")];
+    parts.forEach((p, i) => {
+      const k = seg(t, it.at + i * it.per, it.at + i * it.per + .35);
+      p.style.opacity = k;
+      p.style.filter = (it.e.tagName === "IMG" ? "brightness(0) " : "") + `blur(${(1 - k) * 4}px)`;
+    });
+  }
+};
+window.render(0);
+</script>
+</body></html>
