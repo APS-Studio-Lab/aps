@@ -36,8 +36,9 @@ const DIAGRAMS = {
   rivals(W, H, V, D) {
     const S = [], y1 = V ? 620 : 380, y2 = V ? 900 : 600;
     S.push({ k: "text", x: W / 2, y: V ? 330 : 170, s: D.title || "هننافس مين؟", size: V ? 52 : 48, dim: true, t: .2 });
-    S.push({ k: "text", id: "air", x: W / 2, y: y1, s: D.not || "شركات الطيران", size: V ? 76 : 80, t: T(D, "airlines", .5) });
-    S.push({ k: "strike", of: "air", t: T(D, "no", 1.3), dur: .4 });
+    const ta = T(D, "airlines", .5);
+    S.push({ k: "text", id: "air", x: W / 2, y: y1, s: D.not || "شركات الطيران", size: V ? 76 : 80, t: ta });
+    S.push({ k: "strike", of: "air", t: T(D, "no", ta + .6), dur: .4 });
     S.push({ k: "text", x: W / 2, y: y2, s: D.yes || "الأتوبيس والعربية", size: V ? 76 : 80, red: true, t: T(D, "rivals", 2.0) });
     S.push({ k: "line", p: [W / 2 - 170, y2 + 40, W / 2 + 170, y2 + 40], t: T(D, "rivals", 2.0) + .3, dur: .4, red: true, w: 5 });
     return S.concat(credit(W, H, D, 1));

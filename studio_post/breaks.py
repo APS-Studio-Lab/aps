@@ -15,7 +15,9 @@ Job YAML:
       audio_gain_db: -2
       fade_in_s: 0.4
       fade_out_s: 1.2
-      pad_s: 0.25              # air after the last word before the cut
+      before_phrase: "..."     # or: cut in just before these words (the line the presenter comes back on)
+      skip_to_phrase: "..."    # optional: the break replaces the program up to these words (a line it says instead)
+      pad_s: 0.25              # air after the last word / before the next word
       ...insert data (logo, episode, title, number, line, stamp, place, bg_shift, bg_soft)
 """
 from __future__ import annotations
@@ -25,8 +27,8 @@ from pathlib import Path
 
 from .util import FPS, StageError
 
-KEYS = ("insert", "after_phrase", "at_s", "at", "seconds", "audio", "audio_start", "audio_gain_db",
-        "fade_in_s", "fade_out_s", "pad_s")
+KEYS = ("insert", "after_phrase", "before_phrase", "skip_to_phrase", "at_s", "at", "seconds", "audio", "audio_start",
+        "audio_gain_db", "fade_in_s", "fade_out_s", "pad_s")
 
 
 def _run(cmd):
@@ -60,19 +62,35 @@ def _with_audio(video: Path, b: dict, bg: Path | None, out: Path) -> Path:
     return out
 
 
+def _place(b: dict, words, find_phrase) -> tuple[float, float]:
+    """(cut-in time, time the program resumes); -1 = after the end."""
+    if b.get("at") == "end":
+        return -1.0, -1.0
+    if "after_phrase" in b or "before_phrase" in b:
+        if not words:
+            raise StageError("a break placed at a phrase needs the transcript")
+        if "after_phrase" in b:
+            t = find_phrase(words, b["after_phrase"], end=True) + float(b.get("pad_s", 0.25))
+        else:
+            t = find_phrase(words, b["before_phrase"]) - float(b.get("pad_s", 0.25))
+    else:
+        t = float(b["at_s"])
+    t_back = t
+    if b.get("skip_to_phrase"):
+        t_back = find_phrase(words, b["skip_to_phrase"], after=t) - float(b.get("pad_s", 0.25))
+    return t, max(t, t_back)
+
+
 def prepare(br, items: list[dict], words: list[dict] | None, find_phrase, base_path, inserts, work: Path,
             report: dict) -> list[dict]:
     """Render every break (both orientations, with sound). Returns [{t, h, v}] sorted by time; t = -1 means 'end'."""
     out = []
     for i, b in enumerate(items):
-        if b.get("at") == "end":
-            t = -1.0
-        elif "after_phrase" in b:
-            if not words:
-                raise StageError("a break placed after a phrase needs the transcript (captions on)")
-            t = find_phrase(words, b["after_phrase"], end=True) + float(b.get("pad_s", 0.25))
-        else:
-            t = float(b["at_s"])
+        try:
+            t, t_back = _place(b, words, find_phrase)
+        except StageError as e:  # skip only this break, loudly; never guess a position
+            report.setdefault("inserts_skipped", []).append(f"break {b['insert']}: {e}")
+            continue
         data = {k: v for k, v in b.items() if k not in KEYS}
         bg = None
         for key in ("logo", "bg_video", "image", "photo"):
@@ -88,7 +106,7 @@ def prepare(br, items: list[dict], words: list[dict] | None, find_phrase, base_p
         h, v = inserts.render(br, b["insert"], data, float(b["seconds"]), work, f"brk{i}")
         h = _with_audio(h, b, bg, work / f"break{i}_h.mp4")
         v = _with_audio(v, b, bg, work / f"break{i}_v.mp4")
-        out.append({"t": t, "h": h, "v": v, "kind": b["insert"], "seconds": float(b["seconds"])})
+        out.append({"t": t, "back": max(t, t_back), "h": h, "v": v, "kind": b["insert"], "seconds": float(b["seconds"])})
         report.setdefault("breaks", {})["end" if t < 0 else f"{t:7.2f}s"] = f"{b['insert']} ({float(b['seconds']):.1f}s)"
     return sorted(out, key=lambda x: (x["t"] < 0, x["t"]))
 
@@ -117,7 +135,7 @@ def splice(src: Path, audio: Path, breaks: list[dict], tag: str, w: int, h: int,
         fc.append(f"[{j + 2}:v]{norm_v}[bv{j}]")
         fc.append(f"[{j + 2}:a]{norm_a}[ba{j}]")
         segs += [f"[v{k}][a{k}]", f"[bv{j}][ba{j}]"]
-        prev, k = b["t"], k + 1
+        prev, k = b.get("back", b["t"]), k + 1
     fc.append(f"[sv{k}]trim={prev:.3f}:{dur:.3f},setpts=PTS-STARTPTS[v{k}]")
     # the program's own audio is padded with silence: cut it to the picture's length
     fc.append(f"[sa{k}]atrim={prev:.3f}:{dur:.3f},asetpts=PTS-STARTPTS[a{k}x]")

@@ -102,7 +102,8 @@ def _norm_ar(w: str) -> str:
     return re.sub(r"[^\w]", "", w.lower())
 
 
-def _find_phrase(words: list[dict], phrase: str, after: float = -1.0, end: bool = False) -> float:
+def _find_phrase(words: list[dict], phrase: str, after: float = -1.0, end: bool = False,
+                 before: float = 1e9) -> float:
     """Start (or end) time of the phrase in the transcript, first good match at or after `after` seconds.
     Tolerates small spelling differences between runs; never guesses when nothing matches well."""
     from difflib import SequenceMatcher
@@ -112,6 +113,8 @@ def _find_phrase(words: list[dict], phrase: str, after: float = -1.0, end: bool 
     for i in range(len(toks) - n + 1):
         if words[i]["start"] < after:
             continue
+        if words[i]["start"] > before:
+            break
         r = SequenceMatcher(None, " ".join(toks[i:i + n]), " ".join(target)).ratio()
         if r > best + 1e-9:
             best, best_i = r, i
@@ -122,13 +125,34 @@ def _find_phrase(words: list[dict], phrase: str, after: float = -1.0, end: bool 
     return words[best_i + n - 1]["end"] if end else words[best_i]["start"]
 
 
-def _beats(words: list[dict], beats: dict, at: float) -> dict:
+def _beat_found(words, phrase, at, end=1e9):
+    try:
+        return _find_phrase(words, str(phrase), after=at, before=end)
+    except StageError:
+        return None
+
+
+def _beats(words: list[dict], beats: dict, at: float, end: float = 1e9) -> dict:
     """Graphic beats tied to the spoken words: {key: phrase} -> {key: seconds from the graphic's start}.
-    Searched in order, each after the previous, so a repeated word («لأ») lands on the right occurrence."""
-    out, t = {}, at
+    Searched in order, each after the previous, so a repeated word («لأ») lands on the right occurrence.
+    A beat whose words are not found waits for the next beat that is found (late, never early) and is reported."""
+    out, t, missing = {}, at, []
     for k, ph in beats.items():
-        t = _find_phrase(words, str(ph), after=t)
+        try:
+            t = _find_phrase(words, str(ph), after=t, before=end)
+        except StageError:
+            missing.append(k)
+            continue
+        for m in missing:
+            out[m] = round(t - at, 3)
+        missing = []
         out[k] = round(t - at, 3)
+    if missing:
+        if not out:
+            raise StageError(f"none of the beats were found in the transcript: {list(beats.values())}")
+        last = max(out.values())
+        for m in missing:
+            out[m] = last
     return out
 
 
@@ -316,7 +340,12 @@ def main(argv=None):
                 if c.get("until_phrase"):  # stays until the presenter finishes that thought
                     secs = _find_phrase(words or [], c["until_phrase"], after=at, end=True) + float(c.get("hold_s", 0.5)) - at
                 if c.get("beats"):
-                    c = dict(c, beats=_beats(words or [], c["beats"], at))
+                    rb = _beats(words or [], c["beats"], at, at + secs)
+                    late = [k for k in c["beats"] if _beat_found(words or [], c["beats"][k], at, at + secs) is None]
+                    if late:
+                        report.setdefault("warnings", []).append(
+                            f"{c.get('insert') or c.get('overlay')} at {at:.1f}s: beats {late} not heard, shown with the next one")
+                    c = dict(c, beats=rb)
             except StageError as e:
                 report.setdefault("inserts_skipped", []).append(f"{c.get('insert') or c.get('overlay') or 'graphic'}: {e}")
                 continue
