@@ -102,19 +102,34 @@ def _norm_ar(w: str) -> str:
     return re.sub(r"[^\w]", "", w.lower())
 
 
-def _find_phrase(words: list[dict], phrase: str) -> float:
-    """Start time of the phrase in the transcript. Tolerates small spelling differences between runs."""
+def _find_phrase(words: list[dict], phrase: str, after: float = -1.0, end: bool = False) -> float:
+    """Start (or end) time of the phrase in the transcript, first good match at or after `after` seconds.
+    Tolerates small spelling differences between runs; never guesses when nothing matches well."""
     from difflib import SequenceMatcher
     target = [_norm_ar(x) for x in phrase.split() if _norm_ar(x)]
     toks = [_norm_ar(w["w"]) for w in words]
     n, best, best_i = len(target), 0.0, -1
     for i in range(len(toks) - n + 1):
+        if words[i]["start"] < after:
+            continue
         r = SequenceMatcher(None, " ".join(toks[i:i + n]), " ".join(target)).ratio()
-        if r > best:
+        if r > best + 1e-9:
             best, best_i = r, i
+        if after >= 0 and best >= 0.85:   # beats: the first good match after the previous beat
+            break
     if best < 0.8:
-        raise StageError(f"insert anchor phrase not found in transcript (best match {best:.2f}): {phrase}")
-    return words[best_i]["start"]
+        raise StageError(f"anchor phrase not found in transcript (best match {best:.2f}): {phrase}")
+    return words[best_i + n - 1]["end"] if end else words[best_i]["start"]
+
+
+def _beats(words: list[dict], beats: dict, at: float) -> dict:
+    """Graphic beats tied to the spoken words: {key: phrase} -> {key: seconds from the graphic's start}.
+    Searched in order, each after the previous, so a repeated word («لأ») lands on the right occurrence."""
+    out, t = {}, at
+    for k, ph in beats.items():
+        t = _find_phrase(words, str(ph), after=t)
+        out[k] = round(t - at, 3)
+    return out
 
 
 def main(argv=None):
@@ -295,10 +310,18 @@ def main(argv=None):
                     continue
             else:
                 at = float(c["at_s"])
-            secs = float(c.get("seconds", 6))
             at += float(c.get("offset_s", 0))
+            secs = float(c.get("seconds", 6))
+            try:
+                if c.get("until_phrase"):  # stays until the presenter finishes that thought
+                    secs = _find_phrase(words or [], c["until_phrase"], after=at, end=True) + float(c.get("hold_s", 0.5)) - at
+                if c.get("beats"):
+                    c = dict(c, beats=_beats(words or [], c["beats"], at))
+            except StageError as e:
+                report.setdefault("inserts_skipped", []).append(f"{c.get('insert') or c.get('overlay') or 'graphic'}: {e}")
+                continue
             if "overlay" in c:  # over the running video (graphics/overlays/<type>.html), alpha clip
-                data = {k: v for k, v in c.items() if k not in ("overlay", "at_phrase", "at_s", "seconds", "offset_s")}
+                data = {k: v for k, v in c.items() if k not in ("overlay", "at_phrase", "at_s", "seconds", "offset_s", "until_phrase", "hold_s")}
                 if data.get("photo") and not str(data["photo"]).startswith(("http", "data:", "file:")):
                     f = _path(data["photo"], base)
                     if not f.exists():
@@ -311,7 +334,7 @@ def main(argv=None):
                 report.setdefault("overlays", {})[f"{at:7.2f}s"] = f"{c['overlay']} ({secs:.1f}s)"
                 continue
             if "insert" in c:  # archive insert: template + data (graphics/inserts/<type>.html)
-                data = {k: v for k, v in c.items() if k not in ("insert", "at_phrase", "at_s", "seconds", "offset_s")}
+                data = {k: v for k, v in c.items() if k not in ("insert", "at_phrase", "at_s", "seconds", "offset_s", "until_phrase", "hold_s")}
                 for key in ("image", "photo", "logo", "bg_video"):  # files from the job folder or the brand kit
                     if data.get(key) and not str(data[key]).startswith(("http", "data:")):
                         f = _path(data[key], base)

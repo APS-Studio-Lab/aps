@@ -1,30 +1,39 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
-<link rel="stylesheet" href="inserts.css">
+<link rel="stylesheet" href="inserts.css"><link rel="stylesheet" href="titlecard.css">
+<!-- Explainer over a moving archive clip (data.bg_video), in the end-card style: the clip is dimmed, and a pen
+     draws the diagram in muted cream with muted red accents, never bright, never glowing.
+     Every step can be tied to the presenter's words: D.beats = {key: seconds} (resolved from phrases by the
+     pipeline); a diagram reads them with T(D, key, default). D: diagram, beats?, credit?, + the diagram's own fields -->
 <style>
-#board{position:absolute;inset:0}
+#dim{position:absolute;inset:0;background:radial-gradient(ellipse 75% 70% at 50% 50%,rgba(8,6,4,.58),rgba(4,3,2,.84) 100%)}
+#board{position:absolute;inset:0;will-change:transform}
 svg#dg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 svg#dg path{fill:none;stroke-linecap:round;stroke-linejoin:round}
-.lbl{position:absolute;white-space:nowrap;color:#231a10;mix-blend-mode:multiply;text-shadow:0 0 1px rgba(35,26,16,.5)}
-.lbl.red{color:#a3150e}
-.ink-t{fill:#231a10;mix-blend-mode:multiply}
-.red-t{fill:#a3150e;mix-blend-mode:multiply}
+.ink{stroke:#cdbf9f;opacity:.92}
+.red{stroke:#b04a3c}
+.lbl{position:absolute;white-space:nowrap;color:#d8ccb2;text-shadow:0 2px 8px rgba(0,0,0,.6)}
+.lbl.red{color:#c0574a}
+.lbl.dim{color:#a89c86}
+.dotc{fill:#cdbf9f}
+.dotc.red{fill:#b04a3c}
 </style></head>
 <body>
+<div id="dim"></div>
 <script>/*DATA*/</script>
-<script src="inserts.js"></script>
+<script src="inserts.js"></script><script src="titlecard.js"></script>
 <script src="diagrams.js"></script>
 <script>
-// the layout sheet fills the frame (flat, top-down); the camera creeps in while the editor draws
-Scene.build("layout_sheet.jpeg", { push: 0.035 });
 const VB = V ? [900, 1500] : [1600, 900];
-const board = el("div", "", Scene.stage); board.id = "board";
+const board = el("div", "", document.body); board.id = "board";
 board.innerHTML = `<svg id="dg" viewBox="0 0 ${VB[0]} ${VB[1]}" preserveAspectRatio="xMidYMid meet"></svg>`;
 const svg = $("dg"), NS = "http://www.w3.org/2000/svg";
 const K = Math.min(innerWidth / VB[0], innerHeight / VB[1]), OX = (innerWidth - VB[0] * K) / 2, OY = (innerHeight - VB[1] * K) / 2;
 const build = DIAGRAMS[D.diagram];
 if (!build) throw new Error("unknown diagram " + D.diagram);
 const steps = build(VB[0], VB[1], V, D);
+const dark = el("div", "", document.body); dark.id = "dark";
+const dust = dustLayer(16, 3);
 
 function wobble(x1, y1, x2, y2, seed, amp = 3) {     // a hand-drawn line: gentle bow + jitter
   const r = rng(seed), n = 6, pts = [];
@@ -43,41 +52,62 @@ function circlePath(cx, cy, r, seed) {               // a slightly imperfect pen
   }
   return "M" + pts.map((p) => p.map((v) => v.toFixed(1)).join(" ")).join(" L");
 }
-const items = [];
+function pathEl(d, s) {
+  const p = document.createElementNS(NS, "path");
+  p.setAttribute("d", d); p.setAttribute("class", s.red ? "red" : "ink");
+  p.style.strokeWidth = s.w || (s.red ? 6 : 4); svg.appendChild(p); return p;
+}
+const items = [], byId = {};
 let seed = 100;
 for (const s of steps) {
   seed++;
   if (s.k === "line" || s.k === "arrow" || s.k === "path" || s.k === "circle") {
-    const p = document.createElementNS(NS, "path");
     let d = s.k === "path" ? s.path : s.k === "circle" ? circlePath(s.c[0], s.c[1], s.r, seed) : wobble(...s.p, seed, s.amp ?? 3);
     if (s.k === "arrow") {
       const [x1, y1, x2, y2] = s.p, a = Math.atan2(y2 - y1, x2 - x1), h = s.head || 22;
       d += ` M${x2 - h * Math.cos(a - .45)} ${y2 - h * Math.sin(a - .45)} L${x2} ${y2} L${x2 - h * Math.cos(a + .45)} ${y2 - h * Math.sin(a + .45)}`;
     }
-    p.setAttribute("d", d);
-    p.setAttribute("class", s.red ? "pencil" : "penink");
-    p.style.strokeWidth = s.w || (s.red ? 7 : 4.5);
-    svg.appendChild(p); items.push({ s, e: p, draw: true });
+    items.push({ s, e: pathEl(d, s), draw: true });
   } else if (s.k === "dot") {
     const c = document.createElementNS(NS, "circle");
     c.setAttribute("cx", s.c[0]); c.setAttribute("cy", s.c[1]); c.setAttribute("r", s.r || 12);
-    c.setAttribute("class", s.red ? "red-t" : "ink-t"); svg.appendChild(c); items.push({ s, e: c });
+    c.setAttribute("class", s.red ? "dotc red" : "dotc"); svg.appendChild(c); items.push({ s, e: c });
   } else if (s.k === "text") {
     // labels are HTML (proper Arabic bidi), positioned in viewBox units; x is the anchor, y the baseline
-    const tx = el("div", s.red ? "lbl red" : "lbl", board);
-    const arabic = /[\u0600-\u06FF]/.test(s.s), a = s.anchor || "middle";
+    const tx = el("div", "lbl" + (s.red ? " red" : "") + (s.dim ? " dim" : ""), board);
+    const arabic = /[؀-ۿ]/.test(s.s), a = s.anchor || "middle";
     tx.style.cssText += `left:${OX + s.x * K}px;top:${OY + s.y * K}px;font:${s.bold === false ? "" : "700 "}${(s.size || 40) * K}px ${s.font || "Amiri"};` +
       `direction:${arabic ? "rtl" : "ltr"};transform:translate(${a === "start" ? 0 : a === "end" ? -100 : -50}%,-78%)`;
     tx.textContent = s.s;
+    if (s.id) byId[s.id] = tx;
     items.push({ s, e: tx });
   }
 }
-bindRender((t) => {
+// strike-throughs measured on the words they cross, every frame (so they always fit the word as set)
+const strikes = steps.filter((s) => s.k === "strike").map((s) => {
+  const it = { s: Object.assign({ red: true, w: 6 }, s), e: pathEl("M0 0", Object.assign({ red: true, w: 6 }, s)), draw: true, sd: ++seed };
+  items.push(it); return it;
+});
+function fitStrikes() {
+  const bs = board.style.transform; board.style.transform = "none";
+  for (const it of strikes) {
+    const b = byId[it.s.of].getBoundingClientRect();
+    const x1 = (b.left - OX) / K - 6, x2 = (b.right - OX) / K + 6, y = (b.top + b.height * .6 - OY) / K;
+    it.e.setAttribute("d", wobble(x2, y, x1, y + 3, it.sd, 2));
+  }
+  board.style.transform = bs;
+}
+window.render = (t) => {
+  board.style.transform = "none"; fitStrikes();
+  dark.style.opacity = Math.max(1 - eOut(seg(t, 0, .3)), seg(t, DUR - .3, DUR));
+  board.style.transform = `scale(${1 + .025 * eInOut(seg(t, 0, DUR))})`;
+  dust(t);
   for (const it of items) {
     const t0 = it.s.t;
-    if (it.draw) drawPath(it.e, t, t0, it.s.dur || .6);
-    else it.e.style.opacity = clamp((t - t0) / .18);
+    if (it.draw) drawPath(it.e, t, t0, it.s.dur || .5);
+    else it.e.style.opacity = (it.s.dim ? .85 : 1) * clamp((t - t0) / .22);
   }
-});
+};
+window.render(0);
 </script>
 </body></html>

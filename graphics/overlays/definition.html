@@ -47,7 +47,7 @@ s.sheet.innerHTML = `
   </div>
   <div class="lamp"></div>`;
 const tw = $("term").getBoundingClientRect().width;
-const t0 = +(D.meaning_at ?? 1.5), per = +(D.meaning_per ?? .16);
+const t0 = +((D.beats && D.beats.meaning) ?? D.meaning_at ?? 1.5), per = +(D.meaning_per ?? .16);
 
 window.render = (t) => {
   placeSheet(s, t, 0.0, { from: V ? [0, 0.6] : [side === "left" ? -0.55 : 0.55, 0.06], dur: .7,
