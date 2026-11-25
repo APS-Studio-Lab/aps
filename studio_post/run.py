@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from . import brandkit, inserts, overlays, joins, analyze, audio, captions, compose, edit, ingest, look, qc, retakes, transcribe
+from . import brandkit, breaks, inserts, overlays, joins, analyze, audio, captions, compose, edit, ingest, look, qc, retakes, transcribe
 from .keyer import Keyer
 from .util import FPS, REPO, Browser, StageError, fill, run
 
@@ -347,6 +347,8 @@ def main(argv=None):
                 v = br.capture_animation(_path(c["graphic_v"], REPO), work / f"cut{i}_v.mp4", 1080, 1920, secs)
             cutaways.append({"start_s": at, "end_s": at + secs, "h": h, "v": v, "kind": c.get("insert", "graphic")})
             report.setdefault("inserts", {})[f"{at:7.2f}s"] = f"{c.get('insert', 'graphic')} ({secs:.1f}s)"
+        brk = breaks.prepare(br, cfg.get("breaks", []), words, _find_phrase, lambda p: _path(p, base), inserts,
+                             work, report) if cfg.get("breaks") else []
     import cv2
     target_y, tint = look.scene_match(cv2.imread(str(bg_h)).astype(np.float32) / 255)
     if not cfg.get("background", {}).get("image_h"):
@@ -395,9 +397,17 @@ def main(argv=None):
                       "-crf", "20", "-pix_fmt", "yuv420p"]
         else:
             vcodec = ["-c:v", "copy"]
-        run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-i", str(master_wav),
-             "-map", "0:v", "-map", "1:a"] + vcodec + ["-af", "apad", "-c:a", "aac", "-b:a", "192k", "-shortest",
-             "-movflags", "+faststart", str(out)])
+        if brk:  # breaks stop the program: join the parts first, then cut each break in (picture and sound)
+            joined = work / f"joined_{tag}.mp4"
+            run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(joined)])
+            w_, h_ = (1920, 1080) if tag == "h" else (1080, 1920)
+            post = vcodec[1] if vcodec[0] == "-vf" else ""      # 4K upscale runs after the splice
+            vc = vcodec[2:] if post else ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p"]
+            breaks.splice(joined, master_wav, brk, tag, w_, h_, out, vc, post)
+        else:
+            run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-i", str(master_wav),
+                 "-map", "0:v", "-map", "1:a"] + vcodec + ["-af", "apad", "-c:a", "aac", "-b:a", "192k", "-shortest",
+                 "-movflags", "+faststart", str(out)])
         outputs[out.name.replace(f"{name}_", "")] = out
 
     qc.check(outputs, report)
