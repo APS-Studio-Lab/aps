@@ -48,7 +48,7 @@ def sheet_edges(frame: np.ndarray, seed: tuple[int, int], thr: int = 135, prev=N
 
 
 def print_page(frame: np.ndarray, page_rgba: np.ndarray, edges, travel: float, page_top: float,
-               fore: float = 1.6, margin: float = 0.05, opacity: float = 1.0) -> np.ndarray:
+               fore: float = 1.6, margin: float = 0.05, opacity: float = 1.0, lean: float = 1.0) -> np.ndarray:
     """Lay the page (RGBA, ink in alpha) on the sheet. Units along the sheet = sheet widths.
     page_top: where the page's top sits along the sheet at travel 0 (negative = still under the rollers)."""
     ct, cl, cr = edges
@@ -56,6 +56,11 @@ def print_page(frame: np.ndarray, page_rgba: np.ndarray, edges, travel: float, p
     ys = np.arange(h, dtype=np.float32)
     L, R = np.polyval(cl, ys), np.polyval(cr, ys)
     width = np.maximum(R - L, 1.0)
+    if lean != 1.0:  # tilt the print's centre line by `lean` x the sheet's own lean (-1 = the opposite way)
+        C = (L + R) / 2
+        y0 = int(np.clip(np.polyval(ct, C[h // 2]), 0, h - 1))
+        C2 = C[y0] + lean * (C - C[y0])
+        L, R = C2 - width / 2, C2 + width / 2
     xs = np.arange(w, dtype=np.float32)
     top_x = np.polyval(ct, xs)                       # nip line y at each x
     # distance along the sheet from the nip, per row, in sheet widths (narrower = further = more paper per px)
