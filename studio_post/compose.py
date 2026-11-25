@@ -39,12 +39,13 @@ def _load(path: Path, alpha: bool = False) -> np.ndarray:
     return im.astype(np.float32) / 255
 
 
-def _reader(path: Path, w: int, h: int, select: str | None = None):
+def _reader(path: Path, w: int, h: int, select: str | None = None, alpha: bool = False):
     vf = [f"select='{select}'"] if select else []
+    ch = 4 if alpha else 3
     cmd = ["ffmpeg", "-v", "error", "-i", str(path)] + (["-vf", ",".join(vf), "-fps_mode", "passthrough"] if vf else []) + \
-          ["-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+          ["-f", "rawvideo", "-pix_fmt", "bgra" if alpha else "bgr24", "-"]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    size = w * h * 3
+    size = w * h * ch
 
     def frames():
         while True:
@@ -52,7 +53,7 @@ def _reader(path: Path, w: int, h: int, select: str | None = None):
             if len(b) < size:
                 p.wait()
                 return
-            yield np.frombuffer(b, np.uint8).reshape(h, w, 3)
+            yield np.frombuffer(b, np.uint8).reshape(h, w, ch)
     return frames()
 
 
@@ -120,8 +121,10 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
     for c in layers.cutaways:
         if c["end_s"] <= t0 or c["start_s"] >= t1:
             continue
-        cut_frames.append({"start": c["start_s"], "end": c["end_s"], "h": _reader(c["h"], 1920, 1080),
-                           "v": _reader(c["v"], 1080, 1920), "pos": -1, "fh": None, "fv": None})
+        ov_ = bool(c.get("overlay"))
+        cut_frames.append({"start": c["start_s"], "end": c["end_s"], "overlay": ov_,
+                           "h": _reader(c["h"], 1920, 1080, alpha=ov_), "v": _reader(c["v"], 1080, 1920, alpha=ov_),
+                           "pos": -1, "fh": None, "fv": None})
 
     sel = "+".join(f"eq(n\\,{f})" for f in frames) if len(frames) < 400 else None
     if sel is None:  # compress into ranges
@@ -215,6 +218,12 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
                         break
                     c["fh"], c["fv"], c["pos"] = nh, nv, c["pos"] + 1
                 if c["fh"] is None:
+                    continue
+                if c["overlay"]:  # a graphic OVER the running video (name card, lower third): its own alpha
+                    for F, O in ((Hf, c["fh"]), (Vf, c["fv"])):
+                        A = O[..., 3:4].astype(np.float32) / 255
+                        F *= 1 - A
+                        F += O[..., :3].astype(np.float32) / 255 * A
                     continue
                 w = min(1.0, (t - c["start"]) / 0.3, (c["end"] - t) / 0.3)
                 Hf = Hf * (1 - w) + c["fh"].astype(np.float32) / 255 * w

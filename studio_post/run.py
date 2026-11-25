@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from . import brandkit, inserts, joins, analyze, audio, captions, compose, edit, ingest, look, qc, retakes, transcribe
+from . import brandkit, inserts, overlays, joins, analyze, audio, captions, compose, edit, ingest, look, qc, retakes, transcribe
 from .keyer import Keyer
 from .util import FPS, REPO, Browser, StageError, fill, run
 
@@ -284,19 +284,30 @@ def main(argv=None):
         overlay = br.render_html(fill("short_overlay.html", TAG=short.get("tag", ""), LINE1=head[0], LINE2=head[1],
                                       BRAND=brandkit.name()), work / "overlay_v.png", 1080, 1920, transparent=True)
         cutaways = []
-        for i, c in enumerate(cfg.get("cutaways", []) + cfg.get("inserts", [])):
+        for i, c in enumerate(cfg.get("cutaways", []) + cfg.get("inserts", []) + cfg.get("overlays", [])):
             if "at_phrase" in c:
                 if not words:
                     raise StageError("cutaway anchored to a phrase needs captions/transcript enabled")
                 try:
                     at = _find_phrase(words, c["at_phrase"])
                 except StageError as e:  # skip only this insert, loudly; never guess a position
-                    report.setdefault("inserts_skipped", []).append(f"{c.get('insert', 'graphic')}: {e}")
+                    report.setdefault("inserts_skipped", []).append(f"{c.get('insert') or c.get('overlay') or 'graphic'}: {e}")
                     continue
             else:
                 at = float(c["at_s"])
             secs = float(c.get("seconds", 6))
             at += float(c.get("offset_s", 0))
+            if "overlay" in c:  # over the running video (graphics/overlays/<type>.html), alpha clip
+                data = {k: v for k, v in c.items() if k not in ("overlay", "at_phrase", "at_s", "seconds", "offset_s")}
+                if data.get("photo") and not str(data["photo"]).startswith(("http", "data:", "file:")):
+                    f = _path(data["photo"], base)
+                    if not f.exists():
+                        raise StageError(f"overlay {i} ({c['overlay']}): file not found: {f}")
+                    data["photo"] = f.resolve().as_uri()
+                h, v = overlays.render(br, c["overlay"], data, secs, work, str(i))
+                cutaways.append({"start_s": at, "end_s": at + secs, "h": h, "v": v, "kind": c["overlay"], "overlay": True})
+                report.setdefault("overlays", {})[f"{at:7.2f}s"] = f"{c['overlay']} ({secs:.1f}s)"
+                continue
             if "insert" in c:  # archive insert: template + data (graphics/inserts/<type>.html)
                 data = {k: v for k, v in c.items() if k not in ("insert", "at_phrase", "at_s", "seconds", "offset_s")}
                 for key in ("image", "photo", "logo"):  # files from the job folder or the brand kit

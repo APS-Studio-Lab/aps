@@ -83,6 +83,28 @@ class Browser:
         page.close()
         return out
 
+    def capture_overlay(self, html_file: Path, out: Path, width: int, height: int, seconds: float) -> Path:
+        """Like capture_animation, but keeps the page's transparency: a QuickTime RLE (ARGB) clip."""
+        n = int(round(seconds * FPS))
+        ff = subprocess.Popen(
+            ["ffmpeg", "-v", "error", "-y", "-f", "image2pipe", "-framerate", str(FPS), "-i", "-",
+             "-c:v", "qtrle", "-pix_fmt", "argb", str(out)],
+            stdin=subprocess.PIPE,
+        )
+        page = self.browser.new_page(viewport={"width": width, "height": height})
+        page.goto(html_file.resolve().as_uri())
+        page.wait_for_timeout(600)
+        if not page.evaluate("typeof window.render === 'function'"):
+            raise StageError(f"{html_file} does not define window.render(t)")
+        for i in range(n):
+            page.evaluate(f"window.render({i / FPS})")
+            ff.stdin.write(page.screenshot(type="png", omit_background=True))
+        page.close()
+        ff.stdin.close()
+        if ff.wait() != 0:
+            raise StageError(f"ffmpeg failed encoding {out}")
+        return out
+
     def capture_animation(self, html_file: Path, out: Path, width: int, height: int, seconds: float) -> Path:
         """Render a page exposing window.render(t) to an H.264 clip, frame by frame."""
         n = int(round(seconds * FPS))
