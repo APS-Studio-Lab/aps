@@ -16,6 +16,20 @@ keeps the print glued to the object, which is exactly what we want.
   The words, letters and logo in these files are the ONLY text allowed in the clip.
 - The shot list for the episode: `00_Brand/agents/motion/<episode>/shots.md`.
 
+## Way A (try first) — edit an EXISTING clip from `00_Brand/archive/motion/`
+If you have a video-editing (video-to-video) model, give it the existing clip and the artwork PNG:
+
+> Add the supplied artwork to [the left-hand page of the open book / the paper coming out of the press] as if
+> it had been printed there with letterpress: dark brown-black ink pressed into the paper, following its
+> curve, perspective, light and every movement of the paper for the whole clip. Keep the artwork's letters
+> EXACTLY as supplied; add no other text. Keep everything else in the clip unchanged.
+
+Same checks as Step 2 below: every Arabic letter identical to the artwork in EVERY part of the clip, the print
+moves with the paper (including when a page lifts or the paper runs), nothing else changes, no visible
+watermark. If the text is garbled or slides, do not keep trying for long: switch to Way B.
+
+## Way B — print on a still, then animate it
+
 ## Step 1 — print the artwork onto the object (image edit, one still per shot)
 Give the image model the plate AND the artwork PNG, with this prompt (fill the brackets from the shot list):
 
