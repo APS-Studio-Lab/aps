@@ -1,0 +1,104 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- Episode intro: a TRANSPARENT motion layer, composited by the pipeline over a moving archive clip
+     (data.bg_video, e.g. 00_Brand/archive/motion/open_book.mp4). Logo reveal, episode number, title in
+     kinetic type, drifting dust and a light sweep. Deterministic: window.render(t). -->
+<style>
+@font-face{font-family:Cairo;src:url(../../brand/fonts/Cairo-Black.ttf);font-weight:900}
+@font-face{font-family:Tajawal;src:url(../../brand/fonts/Tajawal-Bold.ttf);font-weight:700}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100vw;height:100vh;overflow:hidden;background:transparent}
+body{--u:calc(min(100vw,100vh)/1000);--gold:#c9a04f;--gold2:#f2dc98;--cream:#f3eee4}
+#shade{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 46%,rgba(10,8,5,.58) 0%,rgba(10,8,5,.72) 50%,rgba(5,4,3,.92) 100%)}
+#dark{position:absolute;inset:0;background:#000}
+#dust{position:absolute;inset:0}
+#sweep{position:absolute;inset:-20%;mix-blend-mode:screen;
+  background:linear-gradient(105deg,rgba(0,0,0,0) 40%,rgba(255,214,150,.16) 49%,rgba(255,236,200,.28) 50%,rgba(255,214,150,.16) 51%,rgba(0,0,0,0) 60%)}
+#stack{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;will-change:transform}
+#logo{position:relative;width:calc(var(--u)*620)}
+#logo img{display:block;width:100%}
+#glint{position:absolute;inset:0;mix-blend-mode:screen;-webkit-mask-size:100% 100%;mask-size:100% 100%;
+  background:linear-gradient(100deg,rgba(0,0,0,0) 35%,rgba(255,240,200,.95) 50%,rgba(0,0,0,0) 65%);background-size:300% 100%}
+#rule{width:calc(var(--u)*420);height:calc(var(--u)*3);margin-top:calc(var(--u)*34);
+  background:linear-gradient(90deg,rgba(201,160,79,0),var(--gold2),rgba(201,160,79,0))}
+#ep{font:700 calc(var(--u)*44) Tajawal;color:var(--gold);margin-top:calc(var(--u)*22);letter-spacing:.06em}
+#title{font:900 calc(var(--u)*74)/1.25 Cairo;color:var(--cream);margin-top:calc(var(--u)*10);text-align:center;direction:rtl;
+  max-width:88vw;text-shadow:0 calc(var(--u)*4) calc(var(--u)*24) rgba(0,0,0,.6)}
+.w{display:inline-block;will-change:transform,opacity,filter}
+</style></head>
+<body>
+<div id="shade"></div>
+<canvas id="dust"></canvas>
+<div id="sweep"></div>
+<div id="stack">
+  <div id="logo"><img id="lg"><div id="glint"></div></div>
+  <div id="rule"></div>
+  <div id="ep"></div>
+  <div id="title"></div>
+</div>
+<div id="dark"></div>
+<script>/*DATA*/</script>
+<script>
+const D = window.D || {};
+const DUR = D.seconds || 7;
+const V = innerHeight > innerWidth;
+const U = Math.min(innerWidth, innerHeight) / 1000;
+const $ = (id) => document.getElementById(id);
+const clamp = (x) => Math.max(0, Math.min(1, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const eOut = (x) => 1 - Math.pow(1 - x, 3);
+const eIO = (x) => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+
+if (!D.logo) throw new Error("intro needs data.logo");
+$("lg").src = D.logo;
+$("glint").style.webkitMaskImage = $("glint").style.maskImage = `url('${D.logo}')`;
+$("ep").textContent = D.episode || "";
+$("title").innerHTML = (D.title || "").split(/\s+/).filter(Boolean).map((w) => `<span class="w">${w}</span>`).join(" ");
+if (V) { $("logo").style.width = 760 * U + "px"; $("title").style.fontSize = 84 * U + "px"; }
+
+// dust: fixed seed, every mote drifts on its own slow path
+const cv = $("dust"), cx = cv.getContext("2d");
+cv.width = innerWidth; cv.height = innerHeight;
+let s = 7; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+const motes = Array.from({ length: V ? 70 : 90 }, () => ({
+  x: rnd(), y: rnd(), r: 0.6 + rnd() * 2.4, sp: 0.004 + rnd() * 0.012, ph: rnd() * 6.28, a: 0.15 + rnd() * 0.5,
+}));
+function dust(t) {
+  cx.clearRect(0, 0, cv.width, cv.height);
+  for (const m of motes) {
+    const x = ((m.x + t * m.sp + 0.012 * Math.sin(t * .7 + m.ph)) % 1) * cv.width;
+    const y = ((m.y - t * m.sp * .6 + 1) % 1) * cv.height;
+    const tw = 0.6 + 0.4 * Math.sin(t * 1.3 + m.ph);
+    const g = cx.createRadialGradient(x, y, 0, x, y, m.r * U * 3);
+    g.addColorStop(0, `rgba(255,226,170,${m.a * tw})`); g.addColorStop(1, "rgba(255,226,170,0)");
+    cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, m.r * U * 3, 0, 6.29); cx.fill();
+  }
+}
+
+window.render = (t) => {
+  dust(t);
+  $("dark").style.opacity = Math.max(1 - eOut(seg(t, 0, .7)), seg(t, DUR - .45, DUR));
+  $("sweep").style.transform = `translateX(${-60 + 120 * eIO(seg(t, .6, DUR - .6))}%)`;
+  // the whole stack breathes forward slowly
+  $("stack").style.transform = `scale(${1 + 0.05 * seg(t, 0, DUR)})`;
+  // logo: rises out of blur, then a gold glint runs across it
+  const lk = eOut(seg(t, .7, 1.9));
+  const lg = $("logo");
+  lg.style.opacity = lk;
+  lg.style.filter = `blur(${(1 - lk) * 14 * U}px)`;
+  lg.style.transform = `translateY(${(1 - lk) * 30 * U}px) scale(${0.94 + 0.06 * lk})`;
+  $("glint").style.backgroundPosition = `${100 - 100 * seg(t, 1.7, 2.7)}% 0`;
+  $("glint").style.opacity = seg(t, 1.65, 1.8) * (1 - seg(t, 2.6, 2.8));
+  $("rule").style.transform = `scaleX(${eOut(seg(t, 2.2, 3.0))})`;
+  $("ep").style.opacity = seg(t, 2.6, 3.1);
+  $("ep").style.transform = `translateY(${(1 - eOut(seg(t, 2.6, 3.1))) * 14 * U}px)`;
+  [...document.querySelectorAll("#title .w")].forEach((w, i) => {
+    const k = eOut(seg(t, 3.1 + i * .16, 3.65 + i * .16));
+    w.style.opacity = k;
+    w.style.filter = `blur(${(1 - k) * 8 * U}px)`;
+    w.style.transform = `translateY(${(1 - k) * 36 * U}px)`;
+  });
+};
+window.render(0);
+</script>
+</body></html>

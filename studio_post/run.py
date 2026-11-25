@@ -310,7 +310,7 @@ def main(argv=None):
                 continue
             if "insert" in c:  # archive insert: template + data (graphics/inserts/<type>.html)
                 data = {k: v for k, v in c.items() if k not in ("insert", "at_phrase", "at_s", "seconds", "offset_s")}
-                for key in ("image", "photo", "logo"):  # files from the job folder or the brand kit
+                for key in ("image", "photo", "logo", "bg_video"):  # files from the job folder or the brand kit
                     if data.get(key) and not str(data[key]).startswith(("http", "data:")):
                         f = _path(data[key], base)
                         if not f.exists():

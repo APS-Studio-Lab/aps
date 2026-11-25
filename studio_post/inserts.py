@@ -104,13 +104,38 @@ def _bake(browser, kind: str, data: dict, work: Path, tag: str, vertical: bool) 
     return out.resolve().as_uri()
 
 
+def _over_video(bg: Path, layer: Path, out: Path, w: int, h: int, seconds: float, soft: float = 2.0) -> Path:
+    """Composite a transparent motion layer over a moving clip (looped if short, cover-cropped, 30 fps)."""
+    import subprocess
+    from .util import FPS
+    vf = (f"[0:v]fps={FPS},scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h},"
+          f"setsar=1,gblur=sigma={soft:.1f},eq=saturation=0.92,format=rgb24[b];[b][1:v]overlay=0:0:format=auto,format=yuv420p[o]")
+    p = subprocess.run(["ffmpeg", "-v", "error", "-y", "-stream_loop", "-1", "-i", str(bg), "-i", str(layer),
+                        "-filter_complex", vf, "-map", "[o]", "-t", f"{seconds:.3f}", "-an",
+                        "-c:v", "libx264", "-preset", "medium", "-crf", "14", str(out)], capture_output=True)
+    if p.returncode:
+        raise StageError(f"compositing over {bg.name} failed: {p.stderr.decode(errors='replace')[-400:]}")
+    return out
+
+
 def render(browser, kind: str, data: dict, seconds: float, work: Path, tag: str) -> tuple[Path, Path]:
     data = dict(data, seconds=seconds)
+    bg = data.pop("bg_video", None)
+    if bg:  # a moving archive clip behind a transparent graphics layer
+        bg = Path(str(bg).replace("file://", ""))
+        if not bg.exists():
+            raise StageError(f"insert '{kind}': motion clip not found: {bg}")
     outs = []
     for vertical, (w, h) in ((False, (1920, 1080)), (True, (1080, 1920))):
         d = dict(data)
-        if kind == "chapter":
+        o = "v" if vertical else "h"
+        if kind == "chapter" and not bg:
             d["baked"] = _bake(browser, kind, data, work, tag, vertical)
-        page = _page(kind, d, work, f"{tag}_{'v' if vertical else 'h'}")
-        outs.append(browser.capture_animation(page, work / f"insert_{tag}_{'v' if vertical else 'h'}.mp4", w, h, seconds))
+        page = _page(kind, d, work, f"{tag}_{o}")
+        if bg:
+            layer = browser.capture_overlay(page, work / f"insert_{tag}_{o}_layer.mov", w, h, seconds)
+            outs.append(_over_video(bg, layer, work / f"insert_{tag}_{o}.mp4", w, h, seconds,
+                                    float(data.get("bg_soft", 2.0)) * w / 1920))
+        else:
+            outs.append(browser.capture_animation(page, work / f"insert_{tag}_{o}.mp4", w, h, seconds))
     return outs[0], outs[1]
