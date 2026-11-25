@@ -83,7 +83,7 @@ const DIAGRAMS = {
       // the 10 minutes fill in on the dial, one slice per step
       const a1 = i / steps.length * (Math.PI / 3), a2 = (i + 1) / steps.length * (Math.PI / 3), rr = R * .72;
       S.push({ k: "path", path: `M${c[0] + Math.sin(a1) * rr} ${c[1] - Math.cos(a1) * rr} A${rr} ${rr} 0 0 1 ${c[0] + Math.sin(a2) * rr} ${c[1] - Math.cos(a2) * rr}`,
-               t, dur: .4, red: true, w: 18 });
+               t, dur: .4, red: true, w: 12 });
     });
     const ts = T(D, "ten", t0 + .9 + steps.length * .7);
     S.push({ k: "line", p: [c[0], c[1], c[0], c[1] - R * .72], t: t0 + .3, dur: .3, w: 5, amp: 0 });
@@ -181,7 +181,7 @@ const DIAGRAMS = {
     S.push({ k: "text", x: cx, y: cy + 14, s: D.center || "بتلف أسرع", size: 32, red: true, t: last + .4 });
     const tj = T(D, "jam", -1);
     if (tj >= 0) S.push({ k: "line", p: [cx - R * .55, cy - R * .55, cx + R * .55, cy + R * .55], t: tj, dur: .3, red: true, w: 9 },
-                        { k: "text", x: cx, y: V ? cy + R + 140 : H - 18, s: D.jam || "لو بطّلت واحدة.. العجلة تقف", size: 38, red: true, t: tj + .2 });
+                        { k: "text", x: V ? cx : W * .86, y: V ? cy + R + 140 : cy + 10, s: D.jam || "لو بطّلت واحدة.. العجلة تقف", size: V ? 38 : 34, red: true, t: tj + .2 });
     return S.concat(credit(W, H, D, .5));
   },
 

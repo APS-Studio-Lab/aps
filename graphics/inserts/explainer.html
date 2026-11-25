@@ -1,8 +1,8 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
 <link rel="stylesheet" href="inserts.css"><link rel="stylesheet" href="titlecard.css">
-<!-- Explainer over a moving archive clip (data.bg_video), in the end-card style: the clip is dimmed, and a pen
-     draws the diagram in muted cream with muted red accents, never bright, never glowing.
+<!-- Explainer drawn by hand on the archive paper (D.plate: layout_sheet.jpeg by default, or newsprint_blank.jpeg),
+     dark ink with a red pencil. (D.style "dark": over a dimmed moving clip instead, cream ink.)
      Every step can be tied to the presenter's words: D.beats = {key: seconds} (resolved from phrases by the
      pipeline); a diagram reads them with T(D, key, default). D: diagram, beats?, credit?, + the diagram's own fields -->
 <style>
@@ -17,6 +17,15 @@ svg#dg path{fill:none;stroke-linecap:round;stroke-linejoin:round}
 .lbl.dim{color:#a89c86}
 .dotc{fill:#cdbf9f}
 .dotc.red{fill:#b04a3c}
+/* paper: real ink on the sheet */
+body.paper #dim{display:none}
+body.paper .ink{stroke:#231a10;opacity:1;mix-blend-mode:multiply;filter:url(#rough)}
+body.paper .red{stroke:#a8231a;mix-blend-mode:multiply;filter:url(#rough)}
+body.paper .lbl{color:#231a10;mix-blend-mode:multiply;text-shadow:0 0 1px rgba(35,26,16,.5)}
+body.paper .lbl.red{color:#a3150e}
+body.paper .lbl.dim{color:#4a3d2c}
+body.paper .dotc{fill:#231a10;mix-blend-mode:multiply}
+body.paper .dotc.red{fill:#a3150e}
 </style></head>
 <body>
 <div id="dim"></div>
@@ -24,16 +33,20 @@ svg#dg path{fill:none;stroke-linecap:round;stroke-linejoin:round}
 <script src="inserts.js"></script><script src="titlecard.js"></script>
 <script src="diagrams.js"></script>
 <script>
+const PAPER = D.style !== "dark";
+if (PAPER) { document.body.classList.add("paper"); Scene.build(D.plate || "layout_sheet.jpeg", { push: 0.02 }); }
 const VB = V ? [900, 1500] : [1600, 900];
-const board = el("div", "", document.body); board.id = "board";
+const board = el("div", "", PAPER ? Scene.stage : document.body); board.id = "board";
 board.innerHTML = `<svg id="dg" viewBox="0 0 ${VB[0]} ${VB[1]}" preserveAspectRatio="xMidYMid meet"></svg>`;
 const svg = $("dg"), NS = "http://www.w3.org/2000/svg";
-const K = Math.min(innerWidth / VB[0], innerHeight / VB[1]), OX = (innerWidth - VB[0] * K) / 2, OY = (innerHeight - VB[1] * K) / 2;
+const K = Math.min(innerWidth / VB[0], innerHeight / VB[1]) * (PAPER ? 0.9 : 1), OX = (innerWidth - VB[0] * K) / 2, OY = (innerHeight - VB[1] * K) / 2;
+// the drawing and the labels share one frame: viewBox units * K, offset (OX, OY)
+svg.style.cssText = `inset:auto;left:${OX}px;top:${OY}px;width:${VB[0] * K}px;height:${VB[1] * K}px`;
 const build = DIAGRAMS[D.diagram];
 if (!build) throw new Error("unknown diagram " + D.diagram);
 const steps = build(VB[0], VB[1], V, D);
 const dark = el("div", "", document.body); dark.id = "dark";
-const dust = dustLayer(16, 3);
+const dust = PAPER ? () => {} : dustLayer(16, 3);
 
 function wobble(x1, y1, x2, y2, seed, amp = 3) {     // a hand-drawn line: gentle bow + jitter
   const r = rng(seed), n = 6, pts = [];
@@ -90,6 +103,7 @@ const strikes = steps.filter((s) => s.k === "strike").map((s) => {
 });
 function fitStrikes() {
   const bs = board.style.transform; board.style.transform = "none";
+  if (PAPER) Scene.cam.style.transform = "none";
   for (const it of strikes) {
     const b = byId[it.s.of].getBoundingClientRect();
     const x1 = (b.left - OX) / K - 6, x2 = (b.right - OX) / K + 6, y = (b.top + b.height * .6 - OY) / K;
@@ -99,8 +113,9 @@ function fitStrikes() {
 }
 window.render = (t) => {
   board.style.transform = "none"; fitStrikes();
-  dark.style.opacity = Math.max(1 - eOut(seg(t, 0, .3)), seg(t, DUR - .3, DUR));
-  board.style.transform = `scale(${1 + .025 * eInOut(seg(t, 0, DUR))})`;
+  dark.style.opacity = PAPER ? 0 : Math.max(1 - eOut(seg(t, 0, .3)), seg(t, DUR - .3, DUR));
+  if (PAPER) Scene.frame(t);
+  else board.style.transform = `scale(${1 + .025 * eInOut(seg(t, 0, DUR))})`;
   dust(t);
   for (const it of items) {
     const t0 = it.s.t;
