@@ -20,7 +20,9 @@ class Layers:
     logo: Path | None
     overlay_v: Path | None
     host_shift_x: int = 240
-    slides: list = field(default_factory=list)  # [(start_s, end_s, dx_px)]: move the presenter aside for a card
+    slides: list = field(default_factory=list)
+    backlight: float = 0.45   # glow on the wall behind the presenter, so dark clothes separate from a dark set
+    rim: float = 0.35         # thin warm edge light around the presenter
     vertical_scale: float = 1.42
     cutaways: list[dict] = field(default_factory=list)  # {start_s, end_s, h: Path, v: Path}
     captions: list[dict] = field(default_factory=list)  # {start_s, end_s, png: Path}
@@ -96,6 +98,25 @@ def _fit_vertical(img: np.ndarray) -> np.ndarray:
     return bg
 
 
+WARM = np.float32([0.78, 0.9, 1.0])  # BGR: warm tungsten
+
+
+def _separate(c: np.ndarray, fg: np.ndarray, A: np.ndarray, bg: np.ndarray, back: float, rim: float) -> np.ndarray:
+    """Back light: a soft warm glow on the set right behind the presenter's silhouette (follows him), and a thin
+    rim of light on his outline. Dark clothes on a dark set stop melting into it."""
+    if back <= 0 and rim <= 0:
+        return c
+    a = A[..., 0]
+    small = cv2.resize(a, (a.shape[1] // 8, a.shape[0] // 8), interpolation=cv2.INTER_AREA)
+    halo = cv2.resize(cv2.GaussianBlur(small, (0, 0), 9), (a.shape[1], a.shape[0]))
+    halo = np.clip(halo * 1.6, 0, 1)[..., None] * (1 - A)
+    out = c + bg * halo * back * 0.8 * WARM + halo * back * 0.16 * WARM
+    if rim > 0:
+        inner = cv2.GaussianBlur(1 - a, (0, 0), 2.2)[..., None] * A
+        out = out + inner * rim * WARM * (0.35 + fg)
+    return out
+
+
 def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keyer, track: np.ndarray,
                 layers: Layers, out_h: Path, out_v: Path) -> int:
     """frames: source frame numbers to render, in order. first_out_index: their position in the edit."""
@@ -168,6 +189,7 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
             fh, ah = cv2.warpAffine(f, M, (1920, 1080)), cv2.warpAffine(a, M, (1920, 1080))[..., None]
             edge = cv2.GaussianBlur(1 - ah[..., 0], (0, 0), 6)[..., None] * ah
             Hc = fh * ah + bgh * (1 - ah) + wrh * edge * layers.wrap
+            Hc = _separate(Hc, fh, ah, bgh, layers.backlight, layers.rim)
             z = 1.0
             if framing is not None:
                 z, fx, fy = framing[first_out_index + k]
@@ -198,6 +220,7 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
             AV = av[..., None]
             ev = cv2.GaussianBlur(1 - av, (0, 0), 6)[..., None] * AV
             Vc = fv * AV + bgv * (1 - AV) + wrv * ev * layers.wrap
+            Vc = _separate(Vc, fv, AV, bgv, layers.backlight, layers.rim)
             if framing is not None and z > 1.0001:
                 fx, fy = framing[first_out_index + k][1:]
                 Vc = _punch(Vc, 1 + (float(z) - 1) * 0.8, float(fx) * S - x0, y0 + float(fy) * S)

@@ -6,6 +6,10 @@
    the presenter (who steps aside), the name inks in word by word, a licensed photo is paper-clipped on.
    Transparent page. D: name, role, name_en?, years?, photo? + photo_credit (required with a photo), kicker? */
 html,body{background:transparent!important}
+body{--u:calc(min(100vw,100vh)/1220)}
+@media (orientation:portrait){body{--u:calc(100vw/880)}}
+.lamp{position:absolute;inset:0;pointer-events:none;mix-blend-mode:multiply;
+  background:radial-gradient(ellipse 85% 75% at 62% 35%,rgba(255,255,255,1) 35%,rgba(120,100,80,1) 100%)}
 .card{position:absolute;inset:0;padding:6% 7% 6% 7%;display:flex;flex-direction:column;
   background:repeating-linear-gradient(180deg,transparent 0 calc(var(--u)*44),rgba(70,110,160,.28) calc(var(--u)*44) calc(var(--u)*46));
   background-position:0 calc(var(--u)*96)}
@@ -31,13 +35,13 @@ installFilters();
 if (!D.name || !D.role) throw new Error("namecard needs name and role");
 if (D.photo && !D.photo_credit) throw new Error("a photo needs photo_credit (its source and licence)");
 const side = D.side || "left";
-const W = V ? innerWidth * 0.88 : innerWidth * 0.44;
+const W = V ? innerWidth * 0.78 : innerWidth * 0.36;
 const H = W * (V ? 0.66 : 0.56);
 const X = V ? (innerWidth - W) / 2 : side === "left" ? innerWidth * 0.045 : innerWidth * 0.955 - W;
 const Y = V ? innerHeight * 0.27 : innerHeight * 0.53 - H / 2;
 const s = makeSheet(document.body, { w: W, h: H, x: X, y: Y, rot: V ? -1.2 : (side === "left" ? -2.2 : 2.2),
                                      seed: D.seed || 21, rough: .22 });
-s.sheet.style.filter = "sepia(.42) saturate(1.2) brightness(1.04)";
+s.sheet.style.filter = "sepia(.5) saturate(1.05) brightness(.72) contrast(.95)";  // sits in the set's light, not brighter than the video
 if (D.photo) s.holder.classList.add("withphoto");
 s.sheet.innerHTML = `
   <div class="redline"></div>
@@ -49,7 +53,8 @@ s.sheet.innerHTML = `
     ${D.years ? `<div class="yrs" id="yrs">${D.years}</div>` : ""}
   </div>
   ${D.photo ? `<div class="photo" id="ph" style="background-image:url('${D.photo}')"></div>
-               <div class="credit" id="cr" style="top:calc(17% + ${W * 0.30 * 4 / 3}px + var(--u)*14)">${D.photo_credit}</div>` : ""}`;
+               <div class="credit" id="cr" style="top:calc(17% + ${W * 0.30 * 4 / 3}px + var(--u)*14)">${D.photo_credit}</div>` : ""}
+  <div class="lamp"></div>`;
 const clip = el("div", "clip", s.holder);
 clip.style.left = (D.photo ? 0.17 * W : 0.12 * W) + "px";
 clip.style.top = (D.photo ? 0.17 * H - 40 * U : -30 * U) + "px";

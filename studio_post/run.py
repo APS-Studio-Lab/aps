@@ -335,6 +335,7 @@ def main(argv=None):
     layers = compose.Layers(bg_h=bg_h, bg_v=bg_v, logo=brandkit.logo(), overlay_v=overlay,
                             cutaways=cutaways, captions=cap_entries, gains=work / "gains.npy",
                             light_side=bgc.get("light_from", "left"),
+                            backlight=float(bgc.get("backlight", 0.45)), rim=float(bgc.get("rim", 0.35)),
                             bg_blur=float(bgc.get("blur", 0.5 if bgc.get("image_h") else 3.0)),
                             host_shift_x=int(cfg.get("framing", {}).get("host_shift_x", 240)), slides=slides,
                             framing=framing_path, screen=screen_path,
