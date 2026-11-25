@@ -1,15 +1,18 @@
-/* Type laid straight over moving archive footage, in the show's archive style: Amiri / typewriter,
-   aged-paper cream and old gold, worn letterpress edges. Shared by intro.html and chapter_card.html. */
+/* Type laid over moving archive footage, like the show's end card: clean Amiri, muted aged-paper cream
+   (never bright, no glow), set in the dark side of the frame. Shared by intro.html and chapter_card.html. */
 html,body{background:transparent!important}
-#shade{position:absolute;inset:0;background:radial-gradient(ellipse 75% 70% at 50% 50%,rgba(8,6,3,var(--sc,.42)),rgba(6,4,2,.8) 100%)}
+#shade{position:absolute;inset:0}
 #dark{position:absolute;inset:0;background:#000}
-#stack{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  text-align:center;direction:rtl;will-change:transform}
-.cream{color:#eadfc6;filter:url(#worn);text-shadow:0 0 calc(var(--u)*6) rgba(0,0,0,.85),0 calc(var(--u)*3) calc(var(--u)*22) rgba(0,0,0,.9)}
-.gold{color:#c9a04f;filter:url(#worn);text-shadow:0 0 calc(var(--u)*6) rgba(0,0,0,.85),0 calc(var(--u)*3) calc(var(--u)*18) rgba(0,0,0,.9)}
-.kick{font:calc(var(--u)*48) AmiriR}
-.num{font:700 calc(var(--u)*230)/1 Amiri}
-.ttl{font:700 calc(var(--u)*82)/1.3 Amiri;max-width:84vw}
-.rule{width:calc(var(--u)*360);height:calc(var(--u)*3);margin:calc(var(--u)*22) 0 calc(var(--u)*14);
-  background:linear-gradient(90deg,rgba(201,160,79,0),#c9a04f 20%,#c9a04f 80%,rgba(201,160,79,0));filter:url(#worn)}
+#stack{position:absolute;top:0;bottom:0;width:46%;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;text-align:center;direction:rtl;will-change:transform}
+.cream{color:#d8ccb2;text-shadow:0 calc(var(--u)*2) calc(var(--u)*8) rgba(0,0,0,.55)}
+.muted{color:#a89c86;text-shadow:0 calc(var(--u)*2) calc(var(--u)*6) rgba(0,0,0,.5)}
+.dim{color:#7d735f}
+.kick{font:calc(var(--u)*40) AmiriR}
+.num{font:700 calc(var(--u)*150)/1.05 Amiri}
+.ttl{font:700 calc(var(--u)*72)/1.35 Amiri}
+.sub{font:calc(var(--u)*34) AmiriR;margin-top:calc(var(--u)*14)}
+.brand{font:calc(var(--u)*24) AmiriR;margin-top:calc(var(--u)*26)}
+.stamp{position:absolute;font:700 calc(var(--u)*44) Amiri;color:rgba(150,40,30,.55);
+  border:calc(var(--u)*3) solid rgba(150,40,30,.45);padding:0 calc(var(--u)*14);transform:rotate(-8deg)}
 .w{display:inline-block}

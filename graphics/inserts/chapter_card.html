@@ -1,27 +1,25 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
 <link rel="stylesheet" href="inserts.css"><link rel="stylesheet" href="titlecard.css">
-<!-- Chapter card: transparent type layer over a moving archive clip (data.bg_video). Kicker typed,
-     the number thumps in like a stamp, the title inks in. D: number, title, kicker? -->
+<!-- Chapter card over a moving archive clip (data.bg_video), like the end card: kicker, number, title,
+     clean and muted, in the dark side of the frame. D: number, title, kicker?, place? -->
 </head><body>
-<div id="shade" style="--sc:.66"></div>
-<div id="stack"><div class="kick gold" id="kk"></div><div class="num gold" id="nm"></div><div class="rule" id="rl"></div><div class="ttl cream" id="tt"></div></div>
+<div id="shade"></div>
+<div id="stack"><div class="kick muted" id="kk"></div><div class="num cream" id="nm"></div><div class="ttl cream" id="tt"></div></div>
 <script>/*DATA*/</script>
 <script src="inserts.js"></script><script src="titlecard.js"></script>
 <script>
 if (!D.number || !D.title) throw new Error("chapter needs number and title");
 $("kk").textContent = D.kicker || "الفصل"; $("nm").textContent = D.number; $("tt").textContent = D.title;
-if (V) $("tt").style.fontSize = 96 * U + "px";
+placeStack($("stack"), $("shade"));
 const dark = el("div", "", document.body); dark.id = "dark";
-const dust = dustLayer(26, 5);
+const dust = dustLayer(18, 5);
 window.render = (t) => {
   dark.style.opacity = Math.max(1 - eOut(seg(t, 0, .35)), seg(t, DUR - .35, DUR));
   dust(t);
-  $("stack").style.transform = `scale(${1 + .035 * seg(t, 0, DUR)})`;
-  $("kk").style.opacity = seg(t, .3, .6);
-  thump($("nm"), t, .55, 0);
-  stroke($("rl"), t, .9, .4);
-  inkWords($("tt"), t, 1.05, .13);
+  $("kk").style.opacity = eOut(seg(t, .3, .7));
+  $("nm").style.opacity = eOut(seg(t, .55, 1.0));
+  inkWords($("tt"), t, 1.0, .14);
 };
 window.render(0);
 </script></body></html>

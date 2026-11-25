@@ -104,14 +104,34 @@ def _bake(browser, kind: str, data: dict, work: Path, tag: str, vertical: bool) 
     return out.resolve().as_uri()
 
 
-def _over_video(bg: Path, layer: Path, out: Path, w: int, h: int, seconds: float, soft: float = 2.0) -> Path:
+def _over_video(bg: Path, layer: Path, out: Path, w: int, h: int, seconds: float, soft: float = 2.0,
+                shift: float = 0.0) -> Path:
     """Composite a transparent motion layer over a moving clip (looped if short, cover-cropped, 30 fps)."""
     import subprocess
     from .util import FPS
+    # shift < 0 moves the clip left (shift > 0 right), leaving dark room on the other side for the type;
+    # the seam is hidden under a feathered black gradient
+    sx = int(round(abs(shift) * w))
+    move, extra, grad_in = "", [], ""
+    if sx:
+        import cv2
+        import numpy as np
+        move = f",pad={w + sx}:{h}:{0 if shift < 0 else sx}:0:black,crop={w}:{h}:{sx if shift < 0 else 0}:0"
+        x = np.arange(w, dtype=np.float32)
+        seam = w - sx if shift < 0 else sx
+        d = (x - seam) if shift < 0 else (seam - x)          # > 0 on the empty side
+        a_ = np.clip((d + sx * 0.45) / (sx * 0.6), 0, 1)      # feather starts inside the clip
+        g = np.zeros((h, w, 4), np.uint8)
+        g[..., 3] = (a_ * 255).astype(np.uint8)[None, :]
+        gp = out.with_suffix(".grad.png")
+        cv2.imwrite(str(gp), g)
+        extra = ["-i", str(gp)]
+        grad_in = "[b0][2:v]overlay=0:0[b];"
     vf = (f"[0:v]fps={FPS},scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h},"
-          f"setsar=1,gblur=sigma={soft:.1f},eq=saturation=0.92,format=rgb24[b];[b][1:v]overlay=0:0:format=auto,format=yuv420p[o]")
-    p = subprocess.run(["ffmpeg", "-v", "error", "-y", "-stream_loop", "-1", "-i", str(bg), "-i", str(layer),
-                        "-filter_complex", vf, "-map", "[o]", "-t", f"{seconds:.3f}", "-an",
+          f"setsar=1,gblur=sigma={soft:.1f},eq=saturation=0.92{move},format=rgb24[{'b0' if sx else 'b'}];"
+          f"{grad_in}[b][1:v]overlay=0:0:format=auto,format=yuv420p[o]")
+    p = subprocess.run(["ffmpeg", "-v", "error", "-y", "-stream_loop", "-1", "-i", str(bg), "-i", str(layer)] + extra +
+                       ["-filter_complex", vf, "-map", "[o]", "-t", f"{seconds:.3f}", "-an",
                         "-c:v", "libx264", "-preset", "medium", "-crf", "14", str(out)], capture_output=True)
     if p.returncode:
         raise StageError(f"compositing over {bg.name} failed: {p.stderr.decode(errors='replace')[-400:]}")
@@ -135,7 +155,8 @@ def render(browser, kind: str, data: dict, seconds: float, work: Path, tag: str)
         if bg:
             layer = browser.capture_overlay(page, work / f"insert_{tag}_{o}_layer.mov", w, h, seconds)
             outs.append(_over_video(bg, layer, work / f"insert_{tag}_{o}.mp4", w, h, seconds,
-                                    float(data.get("bg_soft", 2.0)) * w / 1920))
+                                    float(data.get("bg_soft", 2.0)) * w / 1920,
+                                    0.0 if vertical else float(data.get("bg_shift", 0.0))))
         else:
             outs.append(browser.capture_animation(page, work / f"insert_{tag}_{o}.mp4", w, h, seconds))
     return outs[0], outs[1]

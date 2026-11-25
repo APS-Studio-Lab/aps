@@ -1,18 +1,17 @@
-// worn letterpress edges for light type on dark footage
-document.body.insertAdjacentHTML("afterbegin", `<svg width="0" height="0" style="position:absolute"><defs>
-  <filter id="worn" x="-5%" y="-5%" width="110%" height="110%">
-    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="4" result="n"/>
-    <feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.6 1.25" result="holes"/>
-    <feComposite in="SourceGraphic" in2="holes" operator="in" result="worn"/>
-    <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="9" result="w"/>
-    <feDisplacementMap in="worn" in2="w" scale="2.2" xChannelSelector="R" yChannelSelector="G"/>
-  </filter></defs></svg>`);
+// where the type sits: the dark side of the clip (D.place: "right" | "left" | "center")
+function placeStack(stack, shade) {
+  const p = V ? "center" : (D.place || "right");
+  if (p === "center") { stack.style.left = "18%"; stack.style.width = "64%";
+    shade.style.background = "radial-gradient(ellipse 60% 55% at 50% 50%,rgba(0,0,0,.35),rgba(0,0,0,0) 75%)"; }
+  else { stack.style[p] = "4%";
+    shade.style.background = `linear-gradient(${p === "right" ? "270deg" : "90deg"},rgba(0,0,0,.5) 0%,rgba(0,0,0,.28) 38%,rgba(0,0,0,0) 62%)`; }
+}
 // words ink in: from a soft blur to sharp, one after another
 function inkWords(e, t, t0, per = .14) {
   if (!e._w) { e.innerHTML = e.textContent.trim().split(/\s+/).map((w) => `<span class="w">${w}</span>`).join(" ");
                e._w = [...e.querySelectorAll(".w")]; }
   e._w.forEach((w, i) => { const k = eOut(seg(t, t0 + i * per, t0 + i * per + .45));
-    w.style.opacity = k; w.style.filter = `blur(${(1 - k) * 7 * U}px)`; w.style.transform = `translateY(${(1 - k) * 10 * U}px)`; });
+    w.style.opacity = k; w.style.transform = `translateY(${(1 - k) * 8 * U}px)`; });
 }
 // typewriter: letters one by one (only for Latin/typewriter lines and short Arabic kickers)
 function typeOn(e, t, t0, per = .05) {

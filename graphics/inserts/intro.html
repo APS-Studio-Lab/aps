@@ -1,31 +1,29 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
 <link rel="stylesheet" href="inserts.css"><link rel="stylesheet" href="titlecard.css">
-<!-- Episode intro: transparent type layer over a moving archive clip (data.bg_video). The lamp comes on,
-     the logo inks in, the episode number is typed, the title inks in word by word. D: logo, episode, title -->
-<style>#logo{width:calc(var(--u)*640);filter:url(#worn) drop-shadow(0 calc(var(--u)*4) calc(var(--u)*16) rgba(0,0,0,.7))}</style>
+<!-- Episode intro over a moving archive clip (data.bg_video): the lamp comes on, the logo fades up clean,
+     the episode number and title follow, set in the dark side of the frame. D: logo, episode, title, place? -->
+<style>#logo{width:calc(var(--u)*480);filter:brightness(.82) saturate(.9)}</style>
 </head><body>
 <div id="shade"></div>
-<div id="stack"><img id="logo"><div class="rule" id="rl"></div><div class="kick gold" id="ep"></div><div class="ttl cream" id="tt"></div></div>
+<div id="stack"><img id="logo"><div class="kick muted" id="ep" style="margin-top:calc(var(--u)*30)"></div><div class="ttl cream" id="tt"></div></div>
 <script>/*DATA*/</script>
 <script src="inserts.js"></script><script src="titlecard.js"></script>
 <script>
 if (!D.logo) throw new Error("intro needs data.logo");
 $("logo").src = D.logo; $("ep").textContent = D.episode || ""; $("tt").textContent = D.title || "";
-if (V) { $("logo").style.width = 820 * U + "px"; $("tt").style.fontSize = 96 * U + "px"; }
+if (V) $("logo").style.width = 700 * U + "px";
+placeStack($("stack"), $("shade"));
 const dark = el("div", "", document.body); dark.id = "dark";
-const dust = dustLayer(34, 11);
+const dust = dustLayer(24, 11);
 window.render = (t) => {
   const on = t < .25 ? 0 : t < .4 ? .7 : t < .5 ? .25 : t < .65 ? .9 : t < .72 ? .5 : 1;   // lamp flickers on
-  dark.style.opacity = Math.max(1 - on * .95, seg(t, DUR - .45, DUR));
+  dark.style.opacity = Math.max(1 - on * .97, seg(t, DUR - .45, DUR));
   dust(t);
-  $("stack").style.transform = `scale(${1 + .04 * seg(t, 0, DUR)})`;
-  const lk = eOut(seg(t, .9, 2.0));
+  const lk = eOut(seg(t, .9, 2.2));
   $("logo").style.opacity = lk;
-  $("logo").style.transform = `translateY(${(1 - lk) * 18 * U}px)`;
-  stroke($("rl"), t, 2.0, .5);
-  typeOn($("ep"), t, 2.4, .07);
-  inkWords($("tt"), t, 3.1, .16);
+  $("ep").style.opacity = eOut(seg(t, 2.4, 3.0));
+  inkWords($("tt"), t, 3.0, .16);
 };
 window.render(0);
 </script></body></html>
