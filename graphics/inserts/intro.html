@@ -1,58 +1,31 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
-<link rel="stylesheet" href="inserts.css">
-<!-- Episode intro in the archive style, as a TRANSPARENT layer over a moving archive clip (data.bg_video):
-     the lamp warms up over the real moving footage, a freshly printed sheet is laid on top with the show's
-     name pressed in old ink, then the episode title is typed onto it. Deterministic: window.render(t). -->
-<style>
-html,body{background:transparent!important}
-#shade{position:absolute;inset:0;background:radial-gradient(ellipse 70% 70% at 50% 48%,rgba(12,8,4,.18),rgba(8,5,2,.72) 100%)}
-#dark{position:absolute;inset:0;background:#000}
-.body{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6% 8%}
-.ep{font:calc(var(--u)*30) Typewriter;letter-spacing:.08em;margin-top:calc(var(--u)*18)}
-.ttl{font:700 calc(var(--u)*58)/1.3 Amiri;margin-top:calc(var(--u)*6);text-align:center}
-.rule{width:56%;margin-top:calc(var(--u)*18)}
-</style></head>
-<body>
+<link rel="stylesheet" href="inserts.css"><link rel="stylesheet" href="titlecard.css">
+<!-- Episode intro: transparent type layer over a moving archive clip (data.bg_video). The lamp comes on,
+     the logo inks in, the episode number is typed, the title inks in word by word. D: logo, episode, title -->
+<style>#logo{width:calc(var(--u)*640);filter:url(#worn) drop-shadow(0 calc(var(--u)*4) calc(var(--u)*16) rgba(0,0,0,.7))}</style>
+</head><body>
 <div id="shade"></div>
+<div id="stack"><img id="logo"><div class="rule" id="rl"></div><div class="kick gold" id="ep"></div><div class="ttl cream" id="tt"></div></div>
 <script>/*DATA*/</script>
-<script src="inserts.js"></script>
+<script src="inserts.js"></script><script src="titlecard.js"></script>
 <script>
-installFilters();
 if (!D.logo) throw new Error("intro needs data.logo");
+$("logo").src = D.logo; $("ep").textContent = D.episode || ""; $("tt").textContent = D.title || "";
+if (V) { $("logo").style.width = 820 * U + "px"; $("tt").style.fontSize = 96 * U + "px"; }
 const dark = el("div", "", document.body); dark.id = "dark";
-const W = V ? innerWidth * 0.86 : innerWidth * 0.44, H = W * (V ? 1.1 : 0.74);
-const sh = makeSheet(document.body, { w: W, h: H, x: (innerWidth - W) / 2, y: (innerHeight - H) / 2,
-                                      rot: V ? -1.4 : -2.2, seed: 41, rough: .45 });
-sh.sheet.style.filter = "sepia(.35) saturate(1.1) brightness(1.03)";
-sh.sheet.innerHTML = `<div class="body ink">
-  <img id="lg" src="${D.logo}" style="width:72%;filter:brightness(0) url(#oldink);mix-blend-mode:multiply">
-  <div class="rule" id="rl"></div>
-  ${D.episode ? `<div class="ep" id="ep">${D.episode}</div>` : ""}
-  ${D.title ? `<div class="ttl rtl" id="ttl" style="text-align:center">${D.title}</div>` : ""}</div>`;
-// lamp flicker + dust over the moving footage (no plate: the footage is the scene)
-const r = rng(11), motes = [];
-for (let i = 0; i < 30; i++) {
-  const d = el("div", "dust", document.body), s = (1.5 + r() * 3.5) * U;
-  d.style.width = d.style.height = s + "px";
-  motes.push({ d, x: r() * innerWidth, y: r() * innerHeight, vx: (r() - .5) * 8, vy: -4 - r() * 10, a: .2 + r() * .5 });
-}
+const dust = dustLayer(34, 11);
 window.render = (t) => {
-  const on = t < .25 ? 0 : t < .4 ? .7 : t < .5 ? .2 : t < .65 ? .9 : t < .72 ? .45 : 1;
-  dark.style.opacity = Math.max(1 - on * 0.92, seg(t, DUR - .4, DUR));
-  for (const p of motes) {
-    p.d.style.transform = `translate(${(p.x + p.vx * t * U * 3 + innerWidth) % innerWidth}px,` +
-                          `${(p.y + p.vy * t * U * 3 + innerHeight * 4) % innerHeight}px)`;
-    p.d.style.opacity = p.a * (0.6 + 0.4 * Math.sin(t * 2 + p.x));
-  }
-  const T0 = D.sheet_at || 1.6;
-  placeSheet(sh, t, T0, { from: V ? [0, -0.6] : [0.05, -0.6], dur: .75, startRot: 7 });
-  // the name presses in as the sheet lands (ink density rises), then the rule and the typed title
-  $("lg").style.opacity = 0.15 + 0.75 * eOut(seg(t, T0 + .55, T0 + .95));
-  stroke($("rl"), t, T0 + 1.0, .45);
-  if ($("ep")) $("ep").style.opacity = seg(t, T0 + 1.3, T0 + 1.5);
-  if ($("ttl")) setWords($("ttl"), t, T0 + 1.5, .14);
+  const on = t < .25 ? 0 : t < .4 ? .7 : t < .5 ? .25 : t < .65 ? .9 : t < .72 ? .5 : 1;   // lamp flickers on
+  dark.style.opacity = Math.max(1 - on * .95, seg(t, DUR - .45, DUR));
+  dust(t);
+  $("stack").style.transform = `scale(${1 + .04 * seg(t, 0, DUR)})`;
+  const lk = eOut(seg(t, .9, 2.0));
+  $("logo").style.opacity = lk;
+  $("logo").style.transform = `translateY(${(1 - lk) * 18 * U}px)`;
+  stroke($("rl"), t, 2.0, .5);
+  typeOn($("ep"), t, 2.4, .07);
+  inkWords($("tt"), t, 3.1, .16);
 };
 window.render(0);
-</script>
-</body></html>
+</script></body></html>
