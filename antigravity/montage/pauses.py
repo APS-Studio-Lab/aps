@@ -1,7 +1,21 @@
 #!/usr/bin/env python3
 """Remove the pauses that break a sentence in an already-edited video, without touching anything else.
 
-Two steps, with the montage agent's judgement in between:
+MAIN WAY (an export whose "pauses" are filled with sound: stretched syllables, breaths, "اااه"):
+
+  python pauses.py prep  "<edited>.mp4" --out "_pauses"
+      Cuts the video into 20 s review chunks (540p) with the SOURCE time burned into the picture, so the
+      agent reads exact times off the frame instead of guessing them.
+
+  (the agent listens to every chunk and writes _pauses/remove.json:
+      {"remove": [{"start": 4.26, "end": 4.95, "what": "stretched 'ه' + breath", "before": "وصديقه", "after": "هيرب"}]}
+   times in source seconds, read from the burned-in clock)
+
+  python pauses.py cut   "<edited>.mp4" --out "_pauses" [--preview]
+      Moves each edge to the quietest point within 0.12 s (the gap between two words), removes the spans and
+      writes <edited>_tight.mp4 at full quality + report.md.
+
+OTHER WAY (an export with real silent gaps):
 
   python pauses.py find  "<edited>.mp4" --out "_pauses"
       Finds every dip in the voice (measured against the loudness AROUND it, so a noisy or denoised export
@@ -175,6 +189,97 @@ def apply(a) -> None:
     print(f"done: {tight}")
 
 
+def prep(a) -> None:
+    dur = float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(a.video)]))
+    d = a.out / "chunks"
+    d.mkdir(parents=True, exist_ok=True)
+    font = a.font or next((f for f in ("C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/arial.ttf",
+                                       "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+                                       "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf") if Path(f).exists()), None)
+    if not font:
+        die("no font found for the burned-in clock; pass --font <path to a .ttf>")
+    ff = font.replace("\\", "/").replace(":", "\\:")
+    n, t = 0, 0.0
+    while t < dur - 0.5:
+        n += 1
+        out = d / f"chunk_{n:03d}_{int(t // 60):02d}m{int(t % 60):02d}s.mp4"
+        clock = (f"drawtext=fontfile='{ff}':text='%{{eif\\:(t+{t:.3f})\\:d}}.%{{eif\\:mod((t+{t:.3f})*100\\,100)\\:d\\:2}}':"
+                 "x=w-tw-24:y=24:fontsize=54:fontcolor=yellow:box=1:boxcolor=black@0.7:boxborderw=10")
+        run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.3f}", "-t", f"{a.chunk + 1:.3f}", "-i", str(a.video),
+             "-vf", f"scale=-2:540,setpts=PTS-STARTPTS,{clock}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+             "-c:a", "aac", "-b:a", "128k", str(out)])
+        t += a.chunk
+    print(f"{n} chunks of {a.chunk:.0f} s (1 s overlap) with the source clock burned in -> {d}")
+
+
+def cut(a) -> None:
+    rj = a.out / "remove.json"
+    for p in (a.video, rj):
+        if not p.exists():
+            die(f"file not found: {p}")
+    spans = json.loads(rj.read_text(encoding="utf-8")).get("remove")
+    if spans is None:
+        die("remove.json has no 'remove' list")
+    fps = fps_of(a.video)
+    dur = float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(a.video)]))
+    env = envelope(a.video)
+    w = int(a.snap / HOP)
+
+    def quietest(t: float) -> float:
+        i = int(t / HOP)
+        lo, hi = max(0, i - w), min(len(env), i + w + 1)
+        return (lo + int(np.argmin(env[lo:hi]))) * HOP
+
+    cutf, notes = [], []
+    for k, r in enumerate(sorted(spans, key=lambda r: r["start"]), 1):
+        s0, e0 = float(r["start"]), float(r["end"])
+        if not (0 <= s0 < e0 <= dur + 0.2):
+            die(f"span {k} ({s0}-{e0}) is outside the video or reversed")
+        if e0 - s0 > 4:
+            die(f"span {k} ({s0}-{e0}) is longer than 4 s: that is not a pause; check it")
+        s, e = quietest(s0) + a.margin, quietest(e0) - a.margin
+        fs, fe = int(round(s * fps)), int(round(e * fps))
+        flag = ""
+        if abs(s - s0) > a.snap * 0.9 or abs(e - e0) > a.snap * 0.9:
+            flag = "edge moved to the limit: listen"
+        if fe - fs < 2:
+            notes.append((k, r, s0, e0, 0.0, "too short after snapping: kept"))
+            continue
+        cutf.append((fs, fe))
+        notes.append((k, r, s, e, (fe - fs) / fps, flag))
+    cutf.sort()
+    keep, pos = [], 0
+    for fs, fe in cutf:
+        if fs > pos:
+            keep.append((pos, fs))
+        pos = max(pos, fe)
+    end_f = int((min(dur, a.until) if a.until else dur) * fps)
+    if pos < end_f:
+        keep.append((pos, end_f))
+    keep = [(x, min(y, end_f)) for x, y in keep if x < end_f]
+    removed = float(sum(fe - fs for fs, fe in cutf) / fps)
+    tight = a.out / f"{a.video.stem}_tight.mp4"
+    lst = a.out / "_keep.ffconcat"
+    src = a.video.resolve().as_posix().replace("'", r"'\''")
+    lst.write_text("ffconcat version 1.0\n" + "".join(
+        f"file '{src}'\ninpoint {float(x / fps):.5f}\noutpoint {float(y / fps):.5f}\n" for x, y in keep), encoding="utf-8")
+    print(f"removing {len(cutf)} spans, {removed:.1f} s; writing {tight.name} (full quality, takes a while)")
+    run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(lst),
+         "-vf", f"fps={float(fps):.5f}", "-c:v", "libx264", "-preset", "medium", "-crf", "14", "-pix_fmt", "yuv420p",
+         "-c:a", "aac", "-b:a", "256k", "-ar", "48000", str(tight)])
+    lst.unlink()
+    if a.preview:
+        run(["ffmpeg", "-y", "-v", "error", "-i", str(tight), "-vf", "scale=-2:720", "-c:v", "libx264",
+             "-preset", "veryfast", "-crf", "26", "-c:a", "aac", "-b:a", "128k", str(a.out / f"{a.video.stem}_tight_preview.mp4")])
+    md = [f"# Spans removed from {a.video.name}", "",
+          f"{len(cutf)} spans, {removed:.1f} s removed: {dur / 60:.2f} min -> {(dur - removed) / 60:.2f} min.", "",
+          "| # | agent span | cut (after snapping) | removed s | what | words | check |", "|---|---|---|---|---|---|---|"]
+    md += [f"| {k} | {float(r['start']):.2f}–{float(r['end']):.2f} | {s:.2f}–{e:.2f} | {x:.2f} | {r.get('what', '')} | "
+           f"{r.get('before', '')} … {r.get('after', '')} | {f} |" for k, r, s, e, x, f in notes]
+    (a.out / "report.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    print(f"done: {tight}")
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -190,10 +295,22 @@ def main(argv=None) -> None:
     p.add_argument("--join-gap", type=float, default=0.10)
     p.add_argument("--shrink-gap", type=float, default=0.25)
     p.add_argument("--preview", action="store_true")
+    q = sub.add_parser("prep")
+    q.add_argument("video", type=Path)
+    q.add_argument("--out", type=Path, required=True)
+    q.add_argument("--chunk", type=float, default=20.0)
+    q.add_argument("--font", help="a .ttf for the burned-in clock (found automatically on Windows/macOS)")
+    c = sub.add_parser("cut")
+    c.add_argument("video", type=Path)
+    c.add_argument("--out", type=Path, required=True)
+    c.add_argument("--snap", type=float, default=0.12, help="how far an edge may move to the quietest point (s)")
+    c.add_argument("--margin", type=float, default=0.03, help="kept on each side of the cut (s)")
+    c.add_argument("--preview", action="store_true")
+    c.add_argument("--until", type=float, help="test: only write the first N seconds of the source")
     a = ap.parse_args(argv)
     if not a.video.exists():
         die(f"file not found: {a.video}")
-    find(a) if a.cmd == "find" else apply(a)
+    {"find": find, "apply": apply, "prep": prep, "cut": cut}[a.cmd](a)
 
 
 if __name__ == "__main__":
