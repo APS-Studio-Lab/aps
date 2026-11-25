@@ -1,96 +1,43 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
-<!-- Chapter card (motion): a TRANSPARENT motion layer, composited by the pipeline over a moving archive clip
-     (data.bg_video, e.g. 00_Brand/archive/motion/open_book.mp4). Logo reveal, episode number, title in
-     kinetic type, drifting dust and a light sweep. Deterministic: window.render(t). -->
+<link rel="stylesheet" href="inserts.css">
+<!-- Chapter card in the archive style, TRANSPARENT layer over a moving clip (data.bg_video, the press):
+     a fresh sheet is laid over the running press, the chapter number thumps on like a stamp and the title
+     inks in word by word. D: number, title, kicker? Deterministic: window.render(t). -->
 <style>
-@font-face{font-family:Cairo;src:url(../../brand/fonts/Cairo-Black.ttf);font-weight:900}
-@font-face{font-family:Tajawal;src:url(../../brand/fonts/Tajawal-Bold.ttf);font-weight:700}
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100vw;height:100vh;overflow:hidden;background:transparent}
-body{--u:calc(min(100vw,100vh)/1000);--gold:#c9a04f;--gold2:#f2dc98;--cream:#f3eee4}
-#shade{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 46%,rgba(10,8,5,.58) 0%,rgba(10,8,5,.72) 50%,rgba(5,4,3,.92) 100%)}
+html,body{background:transparent!important}
+#shade{position:absolute;inset:0;background:radial-gradient(ellipse 70% 70% at 50% 48%,rgba(12,8,4,.15),rgba(8,5,2,.7) 100%)}
 #dark{position:absolute;inset:0;background:#000}
-#dust{position:absolute;inset:0}
-#sweep{position:absolute;inset:-20%;mix-blend-mode:screen;
-  background:linear-gradient(105deg,rgba(0,0,0,0) 40%,rgba(255,214,150,.16) 49%,rgba(255,236,200,.28) 50%,rgba(255,214,150,.16) 51%,rgba(0,0,0,0) 60%)}
-#stack{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;will-change:transform}
-#kick{font:700 calc(var(--u)*40) Tajawal;color:var(--gold);letter-spacing:.08em}
-#num{font:900 calc(var(--u)*300)/1 Cairo;color:transparent;-webkit-text-stroke:calc(var(--u)*4) var(--gold2);
-  background:linear-gradient(180deg,var(--gold2),var(--gold));-webkit-background-clip:text;background-clip:text;margin-top:calc(var(--u)*6)}
-#rule{width:calc(var(--u)*420);height:calc(var(--u)*3);margin-top:calc(var(--u)*34);
-  background:linear-gradient(90deg,rgba(201,160,79,0),var(--gold2),rgba(201,160,79,0))}
-#ep{font:700 calc(var(--u)*44) Tajawal;color:var(--gold);margin-top:calc(var(--u)*22);letter-spacing:.06em}
-#title{font:900 calc(var(--u)*74)/1.25 Cairo;color:var(--cream);margin-top:calc(var(--u)*10);text-align:center;direction:rtl;
-  max-width:88vw;text-shadow:0 calc(var(--u)*4) calc(var(--u)*24) rgba(0,0,0,.6)}
-.w{display:inline-block;will-change:transform,opacity,filter}
+.body{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6% 8%;text-align:center}
+.kick{font:calc(var(--u)*34) AmiriR}
+.num{font:700 calc(var(--u)*230)/1 Amiri}
+.ttl{font:700 calc(var(--u)*64)/1.3 Amiri;margin-top:calc(var(--u)*12)}
+.rule{width:60%;margin-top:calc(var(--u)*14)}
 </style></head>
 <body>
 <div id="shade"></div>
-<canvas id="dust"></canvas>
-<div id="sweep"></div>
-<div id="stack">
-  <div id="kick"></div>
-  <div id="num"></div>
-  <div id="rule"></div>
-  <div id="title"></div>
-</div>
-<div id="dark"></div>
 <script>/*DATA*/</script>
+<script src="inserts.js"></script>
 <script>
-const D = window.D || {};
-const DUR = D.seconds || 3.5;
-const V = innerHeight > innerWidth;
-const U = Math.min(innerWidth, innerHeight) / 1000;
-const $ = (id) => document.getElementById(id);
-const clamp = (x) => Math.max(0, Math.min(1, x));
-const seg = (t, a, b) => clamp((t - a) / (b - a));
-const eOut = (x) => 1 - Math.pow(1 - x, 3);
-const eIO = (x) => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
-
+installFilters();
 if (!D.number || !D.title) throw new Error("chapter needs number and title");
-$("kick").textContent = D.kicker || "الفصل";
-$("num").textContent = D.number;
-$("title").innerHTML = (D.title || "").split(/\s+/).filter(Boolean).map((w) => `<span class="w">${w}</span>`).join(" ");
-if (V) { $("title").style.fontSize = 84 * U + "px"; }
-
-// dust: fixed seed, every mote drifts on its own slow path
-const cv = $("dust"), cx = cv.getContext("2d");
-cv.width = innerWidth; cv.height = innerHeight;
-let s = 7; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-const motes = Array.from({ length: V ? 70 : 90 }, () => ({
-  x: rnd(), y: rnd(), r: 0.6 + rnd() * 2.4, sp: 0.004 + rnd() * 0.012, ph: rnd() * 6.28, a: 0.15 + rnd() * 0.5,
-}));
-function dust(t) {
-  cx.clearRect(0, 0, cv.width, cv.height);
-  for (const m of motes) {
-    const x = ((m.x + t * m.sp + 0.012 * Math.sin(t * .7 + m.ph)) % 1) * cv.width;
-    const y = ((m.y - t * m.sp * .6 + 1) % 1) * cv.height;
-    const tw = 0.6 + 0.4 * Math.sin(t * 1.3 + m.ph);
-    const g = cx.createRadialGradient(x, y, 0, x, y, m.r * U * 3);
-    g.addColorStop(0, `rgba(255,226,170,${m.a * tw})`); g.addColorStop(1, "rgba(255,226,170,0)");
-    cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, m.r * U * 3, 0, 6.29); cx.fill();
-  }
-}
-
+const dark = el("div", "", document.body); dark.id = "dark";
+const W = V ? innerWidth * 0.84 : innerWidth * 0.40, H = W * (V ? 1.05 : 0.82);
+const sh = makeSheet(document.body, { w: W, h: H, x: (innerWidth - W) / 2, y: (innerHeight - H) / 2,
+                                      rot: V ? 1.2 : 1.8, seed: D.seed || 17, rough: .5 });
+sh.sheet.style.filter = "sepia(.3) saturate(1.1) brightness(1.03)";
+sh.sheet.innerHTML = `<div class="body ink rtl">
+  <div class="kick" id="kk">${D.kicker || "الفصل"}</div>
+  <div class="num" id="nm">${D.number}</div>
+  <div class="rule" id="rl"></div>
+  <div class="ttl" id="tt" style="text-align:center">${D.title}</div></div>`;
 window.render = (t) => {
-  dust(t);
-  $("dark").style.opacity = Math.max(1 - eOut(seg(t, 0, .35)), seg(t, DUR - .3, DUR));
-  $("sweep").style.transform = `translateX(${-60 + 120 * eIO(seg(t, 0, DUR))}%)`;
-  // the whole stack breathes forward slowly
-  $("stack").style.transform = `scale(${1 + 0.05 * seg(t, 0, DUR)})`;
-  $("kick").style.opacity = seg(t, .35, .8);
-  const nk = eOut(seg(t, .3, 1.1));
-  $("num").style.opacity = nk;
-  $("num").style.filter = `blur(${(1 - nk) * 12 * U}px)`;
-  $("num").style.transform = `scale(${1.25 - 0.25 * nk})`;
-  $("rule").style.transform = `scaleX(${eOut(seg(t, .8, 1.4))})`;
-  [...document.querySelectorAll("#title .w")].forEach((w, i) => {
-    const k = eOut(seg(t, 1.0 + i * .12, 1.5 + i * .12));
-    w.style.opacity = k;
-    w.style.filter = `blur(${(1 - k) * 8 * U}px)`;
-    w.style.transform = `translateY(${(1 - k) * 36 * U}px)`;
-  });
+  dark.style.opacity = Math.max(1 - eOut(seg(t, 0, .3)), seg(t, DUR - .3, DUR));
+  placeSheet(sh, t, 0.15, { from: V ? [0, 0.6] : [0, 0.55], dur: .6, startRot: -6 });
+  $("kk").style.opacity = seg(t, .6, .8);
+  thump($("nm"), t, .75, 0);
+  stroke($("rl"), t, 1.0, .35);
+  setWords($("tt"), t, 1.15, .12);
 };
 window.render(0);
 </script>

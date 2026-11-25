@@ -1,103 +1,57 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
-<!-- Episode intro: a TRANSPARENT motion layer, composited by the pipeline over a moving archive clip
-     (data.bg_video, e.g. 00_Brand/archive/motion/open_book.mp4). Logo reveal, episode number, title in
-     kinetic type, drifting dust and a light sweep. Deterministic: window.render(t). -->
+<link rel="stylesheet" href="inserts.css">
+<!-- Episode intro in the archive style, as a TRANSPARENT layer over a moving archive clip (data.bg_video):
+     the lamp warms up over the real moving footage, a freshly printed sheet is laid on top with the show's
+     name pressed in old ink, then the episode title is typed onto it. Deterministic: window.render(t). -->
 <style>
-@font-face{font-family:Cairo;src:url(../../brand/fonts/Cairo-Black.ttf);font-weight:900}
-@font-face{font-family:Tajawal;src:url(../../brand/fonts/Tajawal-Bold.ttf);font-weight:700}
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100vw;height:100vh;overflow:hidden;background:transparent}
-body{--u:calc(min(100vw,100vh)/1000);--gold:#c9a04f;--gold2:#f2dc98;--cream:#f3eee4}
-#shade{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 46%,rgba(10,8,5,.58) 0%,rgba(10,8,5,.72) 50%,rgba(5,4,3,.92) 100%)}
+html,body{background:transparent!important}
+#shade{position:absolute;inset:0;background:radial-gradient(ellipse 70% 70% at 50% 48%,rgba(12,8,4,.18),rgba(8,5,2,.72) 100%)}
 #dark{position:absolute;inset:0;background:#000}
-#dust{position:absolute;inset:0}
-#sweep{position:absolute;inset:-20%;mix-blend-mode:screen;
-  background:linear-gradient(105deg,rgba(0,0,0,0) 40%,rgba(255,214,150,.16) 49%,rgba(255,236,200,.28) 50%,rgba(255,214,150,.16) 51%,rgba(0,0,0,0) 60%)}
-#stack{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;will-change:transform}
-#logo{position:relative;width:calc(var(--u)*620)}
-#logo img{display:block;width:100%}
-#glint{position:absolute;inset:0;mix-blend-mode:screen;-webkit-mask-size:100% 100%;mask-size:100% 100%;
-  background:linear-gradient(100deg,rgba(0,0,0,0) 35%,rgba(255,240,200,.95) 50%,rgba(0,0,0,0) 65%);background-size:300% 100%}
-#rule{width:calc(var(--u)*420);height:calc(var(--u)*3);margin-top:calc(var(--u)*34);
-  background:linear-gradient(90deg,rgba(201,160,79,0),var(--gold2),rgba(201,160,79,0))}
-#ep{font:700 calc(var(--u)*44) Tajawal;color:var(--gold);margin-top:calc(var(--u)*22);letter-spacing:.06em}
-#title{font:900 calc(var(--u)*74)/1.25 Cairo;color:var(--cream);margin-top:calc(var(--u)*10);text-align:center;direction:rtl;
-  max-width:88vw;text-shadow:0 calc(var(--u)*4) calc(var(--u)*24) rgba(0,0,0,.6)}
-.w{display:inline-block;will-change:transform,opacity,filter}
+.body{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6% 8%}
+.ep{font:calc(var(--u)*30) Typewriter;letter-spacing:.08em;margin-top:calc(var(--u)*18)}
+.ttl{font:700 calc(var(--u)*58)/1.3 Amiri;margin-top:calc(var(--u)*6);text-align:center}
+.rule{width:56%;margin-top:calc(var(--u)*18)}
 </style></head>
 <body>
 <div id="shade"></div>
-<canvas id="dust"></canvas>
-<div id="sweep"></div>
-<div id="stack">
-  <div id="logo"><img id="lg"><div id="glint"></div></div>
-  <div id="rule"></div>
-  <div id="ep"></div>
-  <div id="title"></div>
-</div>
-<div id="dark"></div>
 <script>/*DATA*/</script>
+<script src="inserts.js"></script>
 <script>
-const D = window.D || {};
-const DUR = D.seconds || 7;
-const V = innerHeight > innerWidth;
-const U = Math.min(innerWidth, innerHeight) / 1000;
-const $ = (id) => document.getElementById(id);
-const clamp = (x) => Math.max(0, Math.min(1, x));
-const seg = (t, a, b) => clamp((t - a) / (b - a));
-const eOut = (x) => 1 - Math.pow(1 - x, 3);
-const eIO = (x) => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
-
+installFilters();
 if (!D.logo) throw new Error("intro needs data.logo");
-$("lg").src = D.logo;
-$("glint").style.webkitMaskImage = $("glint").style.maskImage = `url('${D.logo}')`;
-$("ep").textContent = D.episode || "";
-$("title").innerHTML = (D.title || "").split(/\s+/).filter(Boolean).map((w) => `<span class="w">${w}</span>`).join(" ");
-if (V) { $("logo").style.width = 760 * U + "px"; $("title").style.fontSize = 84 * U + "px"; }
-
-// dust: fixed seed, every mote drifts on its own slow path
-const cv = $("dust"), cx = cv.getContext("2d");
-cv.width = innerWidth; cv.height = innerHeight;
-let s = 7; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-const motes = Array.from({ length: V ? 70 : 90 }, () => ({
-  x: rnd(), y: rnd(), r: 0.6 + rnd() * 2.4, sp: 0.004 + rnd() * 0.012, ph: rnd() * 6.28, a: 0.15 + rnd() * 0.5,
-}));
-function dust(t) {
-  cx.clearRect(0, 0, cv.width, cv.height);
-  for (const m of motes) {
-    const x = ((m.x + t * m.sp + 0.012 * Math.sin(t * .7 + m.ph)) % 1) * cv.width;
-    const y = ((m.y - t * m.sp * .6 + 1) % 1) * cv.height;
-    const tw = 0.6 + 0.4 * Math.sin(t * 1.3 + m.ph);
-    const g = cx.createRadialGradient(x, y, 0, x, y, m.r * U * 3);
-    g.addColorStop(0, `rgba(255,226,170,${m.a * tw})`); g.addColorStop(1, "rgba(255,226,170,0)");
-    cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, m.r * U * 3, 0, 6.29); cx.fill();
-  }
+const dark = el("div", "", document.body); dark.id = "dark";
+const W = V ? innerWidth * 0.86 : innerWidth * 0.44, H = W * (V ? 1.1 : 0.74);
+const sh = makeSheet(document.body, { w: W, h: H, x: (innerWidth - W) / 2, y: (innerHeight - H) / 2,
+                                      rot: V ? -1.4 : -2.2, seed: 41, rough: .45 });
+sh.sheet.style.filter = "sepia(.35) saturate(1.1) brightness(1.03)";
+sh.sheet.innerHTML = `<div class="body ink">
+  <img id="lg" src="${D.logo}" style="width:72%;filter:brightness(0) url(#oldink);mix-blend-mode:multiply">
+  <div class="rule" id="rl"></div>
+  ${D.episode ? `<div class="ep" id="ep">${D.episode}</div>` : ""}
+  ${D.title ? `<div class="ttl rtl" id="ttl" style="text-align:center">${D.title}</div>` : ""}</div>`;
+// lamp flicker + dust over the moving footage (no plate: the footage is the scene)
+const r = rng(11), motes = [];
+for (let i = 0; i < 30; i++) {
+  const d = el("div", "dust", document.body), s = (1.5 + r() * 3.5) * U;
+  d.style.width = d.style.height = s + "px";
+  motes.push({ d, x: r() * innerWidth, y: r() * innerHeight, vx: (r() - .5) * 8, vy: -4 - r() * 10, a: .2 + r() * .5 });
 }
-
 window.render = (t) => {
-  dust(t);
-  $("dark").style.opacity = Math.max(1 - eOut(seg(t, 0, .7)), seg(t, DUR - .45, DUR));
-  $("sweep").style.transform = `translateX(${-60 + 120 * eIO(seg(t, .6, DUR - .6))}%)`;
-  // the whole stack breathes forward slowly
-  $("stack").style.transform = `scale(${1 + 0.05 * seg(t, 0, DUR)})`;
-  // logo: rises out of blur, then a gold glint runs across it
-  const lk = eOut(seg(t, .7, 1.9));
-  const lg = $("logo");
-  lg.style.opacity = lk;
-  lg.style.filter = `blur(${(1 - lk) * 14 * U}px)`;
-  lg.style.transform = `translateY(${(1 - lk) * 30 * U}px) scale(${0.94 + 0.06 * lk})`;
-  $("glint").style.backgroundPosition = `${100 - 100 * seg(t, 1.7, 2.7)}% 0`;
-  $("glint").style.opacity = seg(t, 1.65, 1.8) * (1 - seg(t, 2.6, 2.8));
-  $("rule").style.transform = `scaleX(${eOut(seg(t, 2.2, 3.0))})`;
-  $("ep").style.opacity = seg(t, 2.6, 3.1);
-  $("ep").style.transform = `translateY(${(1 - eOut(seg(t, 2.6, 3.1))) * 14 * U}px)`;
-  [...document.querySelectorAll("#title .w")].forEach((w, i) => {
-    const k = eOut(seg(t, 3.1 + i * .16, 3.65 + i * .16));
-    w.style.opacity = k;
-    w.style.filter = `blur(${(1 - k) * 8 * U}px)`;
-    w.style.transform = `translateY(${(1 - k) * 36 * U}px)`;
-  });
+  const on = t < .25 ? 0 : t < .4 ? .7 : t < .5 ? .2 : t < .65 ? .9 : t < .72 ? .45 : 1;
+  dark.style.opacity = Math.max(1 - on * 0.92, seg(t, DUR - .4, DUR));
+  for (const p of motes) {
+    p.d.style.transform = `translate(${(p.x + p.vx * t * U * 3 + innerWidth) % innerWidth}px,` +
+                          `${(p.y + p.vy * t * U * 3 + innerHeight * 4) % innerHeight}px)`;
+    p.d.style.opacity = p.a * (0.6 + 0.4 * Math.sin(t * 2 + p.x));
+  }
+  const T0 = D.sheet_at || 1.6;
+  placeSheet(sh, t, T0, { from: V ? [0, -0.6] : [0.05, -0.6], dur: .75, startRot: 7 });
+  // the name presses in as the sheet lands (ink density rises), then the rule and the typed title
+  $("lg").style.opacity = 0.15 + 0.75 * eOut(seg(t, T0 + .55, T0 + .95));
+  stroke($("rl"), t, T0 + 1.0, .45);
+  if ($("ep")) $("ep").style.opacity = seg(t, T0 + 1.3, T0 + 1.5);
+  if ($("ttl")) setWords($("ttl"), t, T0 + 1.5, .14);
 };
 window.render(0);
 </script>

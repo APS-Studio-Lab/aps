@@ -1,105 +1,73 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../inserts/inserts.css">
 <style>
-/* Name card OVER the running video (transparent page): photo, name, role. The presenter stays on screen.
-   Content from window.D: name, role, name_en?, years?, photo? (licensed file), photo_credit (required with a
-   photo), side? ("left" default in 16:9). Deterministic: window.render(t). */
-@font-face{font-family:Cairo;src:url(../../brand/fonts/Cairo-Black.ttf);font-weight:900}
-@font-face{font-family:Tajawal;src:url(../../brand/fonts/Tajawal-Bold.ttf);font-weight:700}
-@font-face{font-family:Almarai;src:url(../../brand/fonts/Almarai-ExtraBold.ttf);font-weight:800}
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100vw;height:100vh;overflow:hidden;background:transparent}
-body{--u:calc(min(100vw,100vh)/1000);--gold:#c9a04f;--gold2:#f2dc98;--ink:#1b1712;--cream:#f3eee4;--green:#1e5435}
-@media (orientation:portrait){body{--u:calc(100vw/1000)}}
-#card{position:absolute;display:flex;gap:calc(var(--u)*34);align-items:center;direction:rtl;
-  padding:calc(var(--u)*30) calc(var(--u)*36);border-radius:calc(var(--u)*22);
-  background:linear-gradient(160deg,rgba(32,27,21,.93),rgba(18,15,11,.93));
-  box-shadow:0 calc(var(--u)*18) calc(var(--u)*50) rgba(0,0,0,.45),inset 0 0 0 calc(var(--u)*1.5) rgba(201,160,79,.35);
-  will-change:transform,opacity}
-#ph{position:relative;flex:none;width:calc(var(--u)*230);height:calc(var(--u)*290);border-radius:calc(var(--u)*14);overflow:hidden;
-  box-shadow:0 0 0 calc(var(--u)*3) var(--gold)}
-#ph i{position:absolute;inset:0;background-size:cover;background-position:50% 25%;will-change:transform}
-#txt{display:flex;flex-direction:column;min-width:calc(var(--u)*340);max-width:calc(var(--u)*560)}
-#kick{font:700 calc(var(--u)*26) Tajawal;color:var(--gold);letter-spacing:.02em}
-#rule{height:calc(var(--u)*4);background:linear-gradient(90deg,var(--gold2),var(--gold));margin:calc(var(--u)*14) 0 calc(var(--u)*16);
-  transform-origin:100% 50%;border-radius:2px}
-#name{font:900 calc(var(--u)*64)/1.18 Cairo;color:var(--cream)}
-#en{font:700 calc(var(--u)*27) Tajawal;color:rgba(243,238,228,.62);direction:ltr;text-align:right;margin-top:calc(var(--u)*6)}
-#role{font:800 calc(var(--u)*34)/1.45 Almarai;color:var(--gold2);margin-top:calc(var(--u)*16)}
-#cr{position:absolute;font:700 calc(var(--u)*15) Tajawal;color:rgba(243,238,228,.55);direction:ltr;white-space:nowrap}
-.w{display:inline-block;will-change:transform,opacity}
+/* Name card OVER the running video, in the archive style: a typed index card on aged paper slides in beside
+   the presenter (who steps aside), the name inks in word by word, a licensed photo is paper-clipped on.
+   Transparent page. D: name, role, name_en?, years?, photo? + photo_credit (required with a photo), kicker? */
+html,body{background:transparent!important}
+.card{position:absolute;inset:0;padding:6% 7% 6% 7%;display:flex;flex-direction:column;
+  background:repeating-linear-gradient(180deg,transparent 0 calc(var(--u)*44),rgba(70,110,160,.28) calc(var(--u)*44) calc(var(--u)*46));
+  background-position:0 calc(var(--u)*96)}
+.redline{position:absolute;left:0;right:0;top:calc(var(--u)*86);height:calc(var(--u)*3);background:rgba(170,40,30,.7);mix-blend-mode:multiply}
+.k{font:calc(var(--u)*24) Typewriter;opacity:.72}
+.name{font:700 calc(var(--u)*64)/1.22 Amiri;margin-top:calc(var(--u)*22)}
+.en{font:calc(var(--u)*27) Typewriter;opacity:.85;direction:ltr;text-align:right}
+.role{font:calc(var(--u)*34)/1.5 AmiriR;margin-top:calc(var(--u)*10)}
+.yrs{font:calc(var(--u)*27) Typewriter;margin-top:auto;direction:ltr;text-align:right}
+.withphoto .card{padding-left:40%}
+.photo{position:absolute;width:30%;aspect-ratio:3/4;left:5%;top:17%;background-size:cover;background-position:50% 22%;
+  filter:grayscale(1) sepia(.4) contrast(1.08) brightness(.97);box-shadow:0 calc(var(--u)*5) calc(var(--u)*12) rgba(0,0,0,.4);
+  outline:calc(var(--u)*7) solid #efe6d2}
+.credit{position:absolute;left:5%;font:calc(var(--u)*13) Typewriter;opacity:.65;direction:ltr;white-space:nowrap}
+.clip{position:absolute;width:calc(var(--u)*34);height:calc(var(--u)*100);border:calc(var(--u)*5) solid #8d8a83;
+  border-radius:calc(var(--u)*18);box-shadow:0 calc(var(--u)*3) calc(var(--u)*5) rgba(0,0,0,.5)}
 </style></head>
 <body>
-<div id="card">
-  <div id="ph"><i></i></div>
-  <div id="txt"><div id="kick"></div><div id="rule"></div><div id="name"></div><div id="en"></div><div id="role"></div></div>
-</div>
-<div id="cr"></div>
 <script>/*DATA*/</script>
+<script src="../inserts/inserts.js"></script>
 <script>
-const D = window.D || {};
-const DUR = D.seconds || 6;
-const V = innerHeight > innerWidth;
-const U = Math.min(innerWidth, innerHeight) / 1000;
-const $ = (id) => document.getElementById(id);
-const clamp = (x) => Math.max(0, Math.min(1, x));
-const seg = (t, a, b) => clamp((t - a) / (b - a));
-const eOut = (x) => 1 - Math.pow(1 - x, 3);
-const eBack = (x) => { const c = 1.45; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
-
-if (D.photo && !D.photo_credit) throw new Error("a photo needs photo_credit (licence)");
-$("kick").textContent = D.kicker || "مين ده؟";
-const words = (s) => s.split(/\s+/).filter(Boolean).map((w) => `<span class="w">${w}</span>`).join(" ");
-$("name").innerHTML = words(D.name || "");
-$("role").innerHTML = words(D.role || "");
-if (D.name_en) $("en").textContent = D.name_en + (D.years ? "  ·  " + D.years : ""); else $("en").remove();
-if (D.photo) { $("ph").firstChild.style.backgroundImage = `url('${D.photo}')`; $("cr").textContent = D.photo_credit; }
-else { $("ph").remove(); $("cr").remove(); }
-
-const card = $("card");
+installFilters();
+if (!D.name || !D.role) throw new Error("namecard needs name and role");
+if (D.photo && !D.photo_credit) throw new Error("a photo needs photo_credit (its source and licence)");
 const side = D.side || "left";
-function layout() {
-  const r = card.getBoundingClientRect();
-  if (V) {           // vertical: centred, upper third (below the headline band)
-    card.style.left = (innerWidth - r.width) / 2 + "px";
-    card.style.top = innerHeight * 0.30 + "px";
-  } else {           // 16:9: beside the presenter, lower-middle of the free side
-    const m = innerWidth * 0.055;
-    card.style.left = (side === "left" ? m : innerWidth - r.width - m) + "px";
-    card.style.top = innerHeight * 0.60 - r.height / 2 + "px";
-  }
-  const c = card.getBoundingClientRect(), p = $("ph") ? $("ph").getBoundingClientRect() : null;
-  if (p) { $("cr").style.right = (innerWidth - c.right) + "px"; $("cr").style.top = c.bottom + 8 * U + "px"; }
-}
-layout();
-
-function stagger(box, t, t0, step) {
-  [...box.querySelectorAll(".w")].forEach((w, i) => {
-    const k = eOut(seg(t, t0 + i * step, t0 + i * step + .35));
-    w.style.opacity = k;
-    w.style.transform = `translateY(${(1 - k) * 22 * U}px)`;
-  });
-}
+const W = V ? innerWidth * 0.88 : innerWidth * 0.44;
+const H = W * (V ? 0.66 : 0.56);
+const X = V ? (innerWidth - W) / 2 : side === "left" ? innerWidth * 0.045 : innerWidth * 0.955 - W;
+const Y = V ? innerHeight * 0.27 : innerHeight * 0.53 - H / 2;
+const s = makeSheet(document.body, { w: W, h: H, x: X, y: Y, rot: V ? -1.2 : (side === "left" ? -2.2 : 2.2),
+                                     seed: D.seed || 21, rough: .22 });
+s.sheet.style.filter = "sepia(.42) saturate(1.2) brightness(1.04)";
+if (D.photo) s.holder.classList.add("withphoto");
+s.sheet.innerHTML = `
+  <div class="redline"></div>
+  <div class="card rtl ink">
+    <div class="k">${D.kicker || "ملف · شخصيات الحدوتة"}</div>
+    <div class="name" id="name">${D.name}</div>
+    ${D.name_en ? `<div class="en" id="en">${D.name_en}</div>` : ""}
+    <div class="role" id="role">${D.role}</div>
+    ${D.years ? `<div class="yrs" id="yrs">${D.years}</div>` : ""}
+  </div>
+  ${D.photo ? `<div class="photo" id="ph" style="background-image:url('${D.photo}')"></div>
+               <div class="credit" id="cr" style="top:calc(17% + ${W * 0.30 * 4 / 3}px + var(--u)*14)">${D.photo_credit}</div>` : ""}`;
+const clip = el("div", "clip", s.holder);
+clip.style.left = (D.photo ? 0.17 * W : 0.12 * W) + "px";
+clip.style.top = (D.photo ? 0.17 * H - 40 * U : -30 * U) + "px";
 
 window.render = (t) => {
-  const tin = seg(t, 0, .55), tout = seg(t, DUR - .5, DUR);
-  const dir = V ? 0 : (side === "left" ? -1 : 1);
-  const x = dir * (1 - eBack(tin)) * 120 * U + dir * eOut(tout) * 90 * U;
-  const y = V ? (1 - eOut(tin)) * 60 * U : 0;
-  card.style.opacity = eOut(tin) * (1 - tout);
-  card.style.transform = `translate(${x}px,${y}px) scale(${0.96 + 0.04 * eOut(tin)})`;
-  const ph = $("ph");
-  if (ph) {
-    const w = eOut(seg(t, .25, .9));
-    ph.style.clipPath = `inset(${(1 - w) * 100}% 0 0 0 round ${14 * U}px)`;
-    ph.firstChild.style.transform = `scale(${1.12 - 0.08 * seg(t, .25, DUR)})`;
-    $("cr").style.opacity = seg(t, .9, 1.3) * (1 - tout);
+  placeSheet(s, t, 0.0, { from: V ? [0, 0.6] : [side === "left" ? -0.55 : 0.55, 0.06], dur: .7,
+                          startRot: side === "left" ? -10 : 10 });
+  const out = seg(t, DUR - .55, DUR);
+  if (out > 0) {  // slides back out the way it came
+    const k = eInOut(out);
+    s.holder.style.transform = `translate(${(V ? 0 : (side === "left" ? -1 : 1)) * k * innerWidth * .6}px,` +
+      `${V ? k * innerHeight * .5 : 0}px) ` + s.holder.style.transform;
   }
-  $("rule").style.transform = `scaleX(${eOut(seg(t, .45, 1.0))})`;
-  $("kick").style.opacity = seg(t, .35, .7);
-  stagger($("name"), t, .55, .09);
-  if ($("en")) $("en").style.opacity = seg(t, 1.0, 1.4);
-  stagger($("role"), t, .95, .06);
+  setWords($("name"), t, 0.75, .12);
+  if ($("en")) $("en").style.opacity = seg(t, 1.05, 1.3);
+  setWords($("role"), t, 1.15, .06);
+  if ($("yrs")) $("yrs").style.opacity = seg(t, 1.6, 1.8);
+  if ($("ph")) { $("ph").style.opacity = seg(t, .45, .75); $("cr").style.opacity = .65 * seg(t, .8, 1.1); }
 };
 window.render(0);
 </script>

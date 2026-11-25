@@ -20,6 +20,7 @@ class Layers:
     logo: Path | None
     overlay_v: Path | None
     host_shift_x: int = 240
+    slides: list = field(default_factory=list)  # [(start_s, end_s, dx_px)]: move the presenter aside for a card
     vertical_scale: float = 1.42
     cutaways: list[dict] = field(default_factory=list)  # {start_s, end_s, h: Path, v: Path}
     captions: list[dict] = field(default_factory=list)  # {start_s, end_s, png: Path}
@@ -158,14 +159,19 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
                 f = relight(f, a, track[n_src, 0], track[n_src, 1], track[n_src, 2], layers.light_side)
             f = np.clip(f, 0, 1)
 
-            M = np.float32([[1, 0, layers.host_shift_x], [0, 1, 0]])
+            shift = layers.host_shift_x
+            for s0, s1, dx in layers.slides:  # eased slide aside while a card is beside the presenter
+                if s0 - 0.6 < t < s1 + 0.6:
+                    u = min(1.0, (t - (s0 - 0.6)) / 0.6, ((s1 + 0.6) - t) / 0.6)
+                    shift += dx * (u * u * (3 - 2 * u))
+            M = np.float32([[1, 0, shift], [0, 1, 0]])
             fh, ah = cv2.warpAffine(f, M, (1920, 1080)), cv2.warpAffine(a, M, (1920, 1080))[..., None]
             edge = cv2.GaussianBlur(1 - ah[..., 0], (0, 0), 6)[..., None] * ah
             Hc = fh * ah + bgh * (1 - ah) + wrh * edge * layers.wrap
             z = 1.0
             if framing is not None:
                 z, fx, fy = framing[first_out_index + k]
-                Hc = _punch(Hc, float(z), float(fx) + layers.host_shift_x, float(fy))
+                Hc = _punch(Hc, float(z), float(fx) + shift, float(fy))
             Hf = fin_h.apply(Hc, first_out_index + k)
             if logo is not None:
                 _blend_rgba(Hf, logo, 60, 60, 0.9)

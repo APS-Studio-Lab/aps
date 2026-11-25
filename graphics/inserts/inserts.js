@@ -28,10 +28,9 @@ function el(tag, cls, parent, html) {
   return e;
 }
 
-// ---------- scene: plate + lamp + vignette + grain + dust ----------
-const Scene = {
-  build(plate, opts = {}) {
-    document.body.insertAdjacentHTML("afterbegin", `
+// ---------- ink / paper filters (also used by overlays, which have no Scene) ----------
+function installFilters() {
+  document.body.insertAdjacentHTML("afterbegin", `
       <svg width="0" height="0" style="position:absolute">
         <filter id="rough"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="4"/>
           <feDisplacementMap in="SourceGraphic" scale="${3 * U}"/></filter>
@@ -48,6 +47,12 @@ const Scene = {
           <feColorMatrix in="coarse" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1.4 0 0 0 0.12" result="wear"/>
           <feComposite in="specked" in2="wear" operator="in"/></filter>
       </svg>`);
+}
+
+// ---------- scene: plate + lamp + vignette + grain + dust ----------
+const Scene = {
+  build(plate, opts = {}) {
+    installFilters();
     this.cam = el("div", "", document.body); this.cam.id = "cam";
     const p = el("div", "plate", this.cam);
     p.style.backgroundImage = `url('${plate.includes(":") ? plate : PLATES + plate}')`;

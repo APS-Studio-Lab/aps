@@ -283,7 +283,7 @@ def main(argv=None):
         head = short.get("headline", ["", ""]) + ["", ""]
         overlay = br.render_html(fill("short_overlay.html", TAG=short.get("tag", ""), LINE1=head[0], LINE2=head[1],
                                       BRAND=brandkit.name()), work / "overlay_v.png", 1080, 1920, transparent=True)
-        cutaways = []
+        cutaways, slides = [], []
         for i, c in enumerate(cfg.get("cutaways", []) + cfg.get("inserts", []) + cfg.get("overlays", [])):
             if "at_phrase" in c:
                 if not words:
@@ -306,6 +306,8 @@ def main(argv=None):
                     data["photo"] = f.resolve().as_uri()
                 h, v = overlays.render(br, c["overlay"], data, secs, work, str(i))
                 cutaways.append({"start_s": at, "end_s": at + secs, "h": h, "v": v, "kind": c["overlay"], "overlay": True})
+                if c.get("slide", 220):  # cards sit on the left: the presenter steps right to make room
+                    slides.append((at, at + secs, float(c.get("slide", 220)) * (1 if c.get("side", "left") == "left" else -1)))
                 report.setdefault("overlays", {})[f"{at:7.2f}s"] = f"{c['overlay']} ({secs:.1f}s)"
                 continue
             if "insert" in c:  # archive insert: template + data (graphics/inserts/<type>.html)
@@ -334,7 +336,7 @@ def main(argv=None):
                             cutaways=cutaways, captions=cap_entries, gains=work / "gains.npy",
                             light_side=bgc.get("light_from", "left"),
                             bg_blur=float(bgc.get("blur", 0.5 if bgc.get("image_h") else 3.0)),
-                            host_shift_x=int(cfg.get("framing", {}).get("host_shift_x", 240)),
+                            host_shift_x=int(cfg.get("framing", {}).get("host_shift_x", 240)), slides=slides,
                             framing=framing_path, screen=screen_path,
                             soft_cut_frames=int(j_cfg.get("soft_cut_frames", 2)))
 
