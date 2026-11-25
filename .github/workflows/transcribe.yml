@@ -1,0 +1,50 @@
+name: Transcribe (word timings)
+# Word-level transcript of one file, so graphics can be timed to the exact words:
+# 02_Renders/_transcripts/<out>.words.json (+ a readable .txt with one line per phrase). Logs show no names.
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: "Path under the studio folder"
+        required: true
+      out:
+        description: "Output name, e.g. E3"
+        required: true
+env:
+  STUDIO_ROOT: ${{ secrets.STUDIO_ROOT || vars.STUDIO_ROOT }}
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: scripts/tools.sh && pip install -q -r requirements.txt "faster-whisper>=1.1"
+      - uses: actions/cache@v4
+        with: { path: ~/.cache/huggingface, key: whisper-turbo-v1 }
+      - name: Drive access
+        env: { RCLONE_CONF: "${{ secrets.RCLONE_CONF }}" }
+        run: mkdir -p ~/.config/rclone && printf '%s' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
+      - name: Transcribe
+        env: { P: "${{ inputs.path }}", O: "${{ inputs.out }}" }
+        run: |
+          set -e
+          echo "::add-mask::$P"; echo "::add-mask::$O"
+          rclone copyto "gdrive:$STUDIO_ROOT/$P" in.media -q
+          mkdir -p out
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from studio_post.captions import transcribe, phrases
+          o = os.environ["O"]
+          words = transcribe(Path("in.media"), Path(f"out/{o}.words.json"))
+          lines = [f"{p[0]['start']:8.2f} {p[-1]['end']:8.2f}  " + " ".join(w["w"] for w in p)
+                   for p in phrases(words, max_words=10, max_s=6.0, gap_s=0.5)]
+          Path(f"out/{o}.words.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          print("words:", len(words))
+          PY
+          rclone copy out "gdrive:$STUDIO_ROOT/02_Renders/_transcripts" -q
+          echo done
