@@ -28,7 +28,7 @@ from pathlib import Path
 from .util import FPS, StageError
 
 KEYS = ("insert", "after_phrase", "before_phrase", "skip_to_phrase", "at_s", "at", "seconds", "audio", "audio_start",
-        "audio_gain_db", "fade_in_s", "fade_out_s", "pad_s")
+        "audio_gain_db", "fade_in_s", "fade_out_s", "pad_s", "near_s")
 
 
 def _run(cmd):
@@ -70,10 +70,11 @@ def _place(b: dict, words, find_phrase) -> tuple[float, float]:
     if "after_phrase" in b or "before_phrase" in b:
         if not words:
             raise StageError("a break placed at a phrase needs the transcript")
+        win = {} if b.get("near_s") is None else {"after": float(b["near_s"]) - 25, "before": float(b["near_s"]) + 25}
         if "after_phrase" in b:
-            t = find_phrase(words, b["after_phrase"], end=True) + float(b.get("pad_s", 0.25))
+            t = find_phrase(words, b["after_phrase"], end=True, **win) + float(b.get("pad_s", 0.25))
         else:
-            t = find_phrase(words, b["before_phrase"]) - float(b.get("pad_s", 0.25))
+            t = find_phrase(words, b["before_phrase"], **win) - float(b.get("pad_s", 0.25))
     else:
         t = float(b["at_s"])
     t_back = t

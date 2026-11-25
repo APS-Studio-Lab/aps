@@ -343,7 +343,9 @@ def main(argv=None):
                 if not words:
                     raise StageError("cutaway anchored to a phrase needs captions/transcript enabled")
                 try:
-                    at = _find_phrase(words, c["at_phrase"])
+                    near = c.get("near_s")  # where the line roughly is: avoids a repeated phrase elsewhere
+                    at = _find_phrase(words, c["at_phrase"]) if near is None else \
+                        _find_phrase(words, c["at_phrase"], after=float(near) - 25, before=float(near) + 25)
                 except StageError as e:  # skip only this insert, loudly; never guess a position
                     report.setdefault("inserts_skipped", []).append(f"{c.get('insert') or c.get('overlay') or 'graphic'}: {e}")
                     continue
@@ -365,7 +367,7 @@ def main(argv=None):
                 report.setdefault("inserts_skipped", []).append(f"{c.get('insert') or c.get('overlay') or 'graphic'}: {e}")
                 continue
             if "overlay" in c:  # over the running video (graphics/overlays/<type>.html), alpha clip
-                data = {k: v for k, v in c.items() if k not in ("overlay", "at_phrase", "at_s", "seconds", "offset_s", "until_phrase", "hold_s")}
+                data = {k: v for k, v in c.items() if k not in ("overlay", "at_phrase", "at_s", "seconds", "offset_s", "until_phrase", "hold_s", "near_s")}
                 if data.get("photo") and not str(data["photo"]).startswith(("http", "data:", "file:")):
                     f = _path(data["photo"], base)
                     if not f.exists():
@@ -378,7 +380,7 @@ def main(argv=None):
                 report.setdefault("overlays", {})[f"{at:7.2f}s"] = f"{c['overlay']} ({secs:.1f}s)"
                 continue
             if "insert" in c:  # archive insert: template + data (graphics/inserts/<type>.html)
-                data = {k: v for k, v in c.items() if k not in ("insert", "at_phrase", "at_s", "seconds", "offset_s", "until_phrase", "hold_s")}
+                data = {k: v for k, v in c.items() if k not in ("insert", "at_phrase", "at_s", "seconds", "offset_s", "until_phrase", "hold_s", "near_s")}
                 for key in ("image", "photo", "logo", "bg_video"):  # files from the job folder or the brand kit
                     if data.get(key) and not str(data[key]).startswith(("http", "data:")):
                         f = _path(data[key], base)
