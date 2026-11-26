@@ -209,7 +209,7 @@ def splice(src: Path, audio: Path, breaks: list[dict], tag: str, w: int, h: int,
     fc.append(f"[vc]{post_vf or 'null'}[vo]")
     # the breaks' music and the program were levelled apart: a final limiter keeps true peaks under -1 dBTP
     fc[-2] = fc[-2].replace("[vc][ao]", "[vc][am]")
-    fc.append("[am]alimiter=limit=0.79:level=false:attack=2:release=60,aresample=48000[ao]")
+    fc.append("[am]alimiter=limit=0.7:level=false:attack=2:release=60,aresample=48000[ao]")
     _run(["ffmpeg", "-v", "error", "-y"] + ins + ["-filter_complex", ";".join(fc), "-map", "[vo]", "-map", "[ao]"]
          + vcodec + ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)])
     return out
