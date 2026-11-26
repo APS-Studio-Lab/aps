@@ -72,6 +72,25 @@ def _blend_rgba(base: np.ndarray, rgba: np.ndarray, x: int, y: int, opacity: flo
     base[y:y + h, x:x + w] = base[y:y + h, x:x + w] * (1 - a) + rgba[..., :3] * a
 
 
+def _black_matte(fr: np.ndarray) -> np.ndarray | None:
+    """For a pre-edited frame where the green screen was masked over pure black: the black reaching the frame's
+    top/left/right edges (float 0..1), else None. The presenter's dark clothes are never pure black and the
+    bottom edge is not used as a seed, so they stay."""
+    small = cv2.resize(fr, (480, 270), interpolation=cv2.INTER_AREA)
+    b, g, r = small[..., 0].astype(np.int16), small[..., 1].astype(np.int16), small[..., 2].astype(np.int16)
+    green = ((g - np.maximum(r, b)) > 40).mean()
+    black = small.max(2) < 9
+    if green < 0.04 or black.mean() < 0.2:
+        return None
+    n, lab = cv2.connectedComponents(black.astype(np.uint8), connectivity=4)
+    edge = set(np.unique(np.concatenate([lab[0], lab[:, 0], lab[:, -1]]))) - {0}
+    if not edge:
+        return None
+    m = np.isin(lab, list(edge)).astype(np.float32)
+    m = cv2.resize(m, (fr.shape[1], fr.shape[0]), interpolation=cv2.INTER_LINEAR)
+    return cv2.GaussianBlur(m, (0, 0), 1.5)
+
+
 def _snap(framing: np.ndarray, i: int) -> bool:
     """A framing jump (a reframe on a cut), as opposed to the smooth per-frame change of a drift."""
     a, b = framing[i - 1], framing[i]
@@ -166,13 +185,18 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
     for k, fr in enumerate(src):
         n_src = frames[k]
         t = (first_out_index + k) / FPS
+        masked = None
         if screen is not None and n_src < len(screen) and not screen[n_src]:
+            masked = _black_matte(fr)  # a green screen an editor masked over black (a crop/mask in the export)?
+        if screen is not None and n_src < len(screen) and not screen[n_src] and masked is None:
             # not a green-screen shot (a graphic, logo card or fade already in a pre-edited export): pass through
             Hf = fr.astype(np.float32) / 255
             Vf = _fit_vertical(Hf)
             cx_s = None
         else:
             a = keyer.alpha(fr)
+            if masked is not None:  # the editor's black around the mask is background too
+                a = a * (1 - masked)
             f = despill(fr.astype(np.float32) / 255)
             if gains is not None:
                 f = f * gains[n_src]
