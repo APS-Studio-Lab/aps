@@ -84,9 +84,11 @@ def _black_matte(fr: np.ndarray) -> np.ndarray | None:
         return None
     n, lab = cv2.connectedComponents(black.astype(np.uint8), connectivity=4)
     edge = set(np.unique(np.concatenate([lab[0], lab[:, 0], lab[:, -1]]))) - {0}
+    edge = {e for e in edge if (lab == e).mean() > 0.02}  # real bars/masks, not a dark corner of the set
     if not edge:
         return None
-    m = np.isin(lab, list(edge)).astype(np.float32)
+    m = np.isin(lab, list(edge)).astype(np.uint8)
+    m = cv2.dilate(m, np.ones((5, 5), np.uint8)).astype(np.float32)  # take the soft black-to-green seam too
     m = cv2.resize(m, (fr.shape[1], fr.shape[0]), interpolation=cv2.INTER_LINEAR)
     return cv2.GaussianBlur(m, (0, 0), 1.5)
 
@@ -185,9 +187,12 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
     for k, fr in enumerate(src):
         n_src = frames[k]
         t = (first_out_index + k) / FPS
-        masked = None
-        if screen is not None and n_src < len(screen) and not screen[n_src]:
-            masked = _black_matte(fr)  # a green screen an editor masked over black (a crop/mask in the export)?
+        # an editor's black around the green (a mask, or a vertical clip pillarboxed into the export) is background:
+        # paint it green so the keyer never takes a black bar for the presenter
+        masked = _black_matte(fr)
+        if masked is not None:
+            fr = fr.copy()
+            fr[masked > 0.5] = (40, 200, 40)
         if screen is not None and n_src < len(screen) and not screen[n_src] and masked is None:
             # not a green-screen shot (a graphic, logo card or fade already in a pre-edited export): pass through
             Hf = fr.astype(np.float32) / 255
@@ -195,7 +200,7 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
             cx_s = None
         else:
             a = keyer.alpha(fr)
-            if masked is not None:  # the editor's black around the mask is background too
+            if masked is not None:
                 a = a * (1 - masked)
             f = despill(fr.astype(np.float32) / 255)
             if gains is not None:
