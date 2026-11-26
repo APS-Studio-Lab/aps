@@ -23,11 +23,14 @@ Job YAML:
 from __future__ import annotations
 
 import subprocess
+import wave
 from pathlib import Path
+
+import numpy as np
 
 from .util import FPS, StageError
 
-KEYS = ("insert", "after_phrase", "before_phrase", "skip_to_phrase", "at_s", "at", "seconds", "audio", "audio_start",
+KEYS = ("insert", "cut", "snap", "after_phrase", "before_phrase", "skip_to_phrase", "at_s", "at", "seconds", "audio", "audio_start",
         "audio_gain_db", "fade_in_s", "fade_out_s", "pad_s", "near_s")
 
 
@@ -63,6 +66,44 @@ def _with_audio(video: Path, b: dict, bg: Path | None, out: Path) -> Path:
     return out
 
 
+def _quiet_curve(audio: Path):
+    """Loudness of the program in 10 ms steps (dBFS), for placing cuts in the pauses between sentences."""
+    with wave.open(str(audio), "rb") as r:
+        p = r.getparams()
+        x = np.frombuffer(r.readframes(p.nframes), np.int16).reshape(-1, p.nchannels).astype(np.float32).mean(1) / 32768
+    hop = p.framerate // 100
+    n = len(x) // hop
+    rms = np.sqrt((x[:n * hop].reshape(n, hop) ** 2).mean(1) + 1e-10)
+    return 20 * np.log10(rms)
+
+
+def _snap(db, t: float, before: float = 0.9, after: float = 0.5) -> tuple[float, bool]:
+    """Move a cut point into the nearest pause (never inside a word). Returns (time, moved)."""
+    if t < 0:
+        return t, False
+    a, b = max(0, int((t - before) * 100)), min(len(db), int((t + after) * 100))
+    if b - a < 5:
+        return t, False
+    w = db[a:b]
+    quiet = w < min(-38.0, float(np.percentile(w, 20)) + 6)
+    best, best_d = None, 1e9
+    i = 0
+    while i < len(w):
+        if quiet[i]:
+            j = i
+            while j < len(w) and quiet[j]:
+                j += 1
+            if j - i >= 8:  # a pause of 80 ms or more
+                mid = (a + (i + j) / 2) / 100
+                d = abs(mid - t)
+                if d < best_d:
+                    best, best_d = mid, d
+            i = j
+        else:
+            i += 1
+    return (best, True) if best is not None else (t, False)
+
+
 def _place(b: dict, words, find_phrase) -> tuple[float, float]:
     """(cut-in time, time the program resumes); -1 = after the end."""
     if b.get("at") == "end":
@@ -79,19 +120,34 @@ def _place(b: dict, words, find_phrase) -> tuple[float, float]:
         t = float(b["at_s"])
     t_back = t
     if b.get("skip_to_phrase"):
-        t_back = find_phrase(words, b["skip_to_phrase"], after=t) - float(b.get("pad_s", 0.25))
+        t_back = find_phrase(words, b["skip_to_phrase"], after=t, before=t + 60) - float(b.get("pad_s", 0.25))
     return t, max(t, t_back)
 
 
 def prepare(br, items: list[dict], words: list[dict] | None, find_phrase, base_path, inserts, work: Path,
-            report: dict) -> list[dict]:
+            report: dict, audio: Path | None = None) -> list[dict]:
     """Render every break (both orientations, with sound). Returns [{t, h, v}] sorted by time; t = -1 means 'end'."""
     out = []
+    db = _quiet_curve(audio) if audio and Path(audio).exists() else None
     for i, b in enumerate(items):
+        name = b.get("insert") or ("cut" if b.get("cut") else "break")
         try:
             t, t_back = _place(b, words, find_phrase)
         except StageError as e:  # skip only this break, loudly; never guess a position
-            report.setdefault("inserts_skipped", []).append(f"break {b['insert']}: {e}")
+            report.setdefault("inserts_skipped", []).append(f"break {name}: {e}")
+            continue
+        if db is not None and b.get("snap", True):  # land in the pause after the sentence, never inside a word
+            t0, back0 = t, t_back
+            t, moved = _snap(db, t)
+            if t_back > t0:
+                t_back, _ = _snap(db, back0)
+            elif t_back >= 0:
+                t_back = t
+            if not moved and t >= 0:
+                report.setdefault("warnings", []).append(f"break {name} at {t:.2f}s: no pause found nearby, cut as placed")
+        if b.get("cut"):  # a repeated take to drop: no card, the program just skips ahead
+            out.append({"t": t, "back": max(t, t_back), "h": None, "v": None, "kind": "cut", "seconds": 0.0})
+            report.setdefault("cuts", {})[f"{t:7.2f}s"] = f"removed {max(0.0, t_back - t):.2f}s"
             continue
         data = {k: v for k, v in b.items() if k not in KEYS}
         bg = None
@@ -119,8 +175,11 @@ def splice(src: Path, audio: Path, breaks: list[dict], tag: str, w: int, h: int,
            post_vf: str = ""):
     """program video + its master audio, with each break cut in at its time (video and audio together)."""
     ins = ["-i", str(src), "-i", str(audio)]
-    for b in breaks:
-        ins += ["-i", str(b[tag])]
+    inp = {}
+    for j, b in enumerate(breaks):
+        if b[tag] is not None:
+            inp[j] = 2 + len(inp)
+            ins += ["-i", str(b[tag])]
     norm_v = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={FPS},format=yuv420p"
     norm_a = "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo"
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(src)],
@@ -136,18 +195,20 @@ def splice(src: Path, audio: Path, breaks: list[dict], tag: str, w: int, h: int,
             continue
         fc.append(f"[sv{k}]trim={prev:.3f}:{b['t']:.3f},setpts=PTS-STARTPTS[v{k}]")
         fc.append(f"[sa{k}]atrim={prev:.3f}:{b['t']:.3f},asetpts=PTS-STARTPTS[a{k}]")
-        fc.append(f"[{j + 2}:v]{norm_v}[bv{j}]")
-        fc.append(f"[{j + 2}:a]{norm_a}[ba{j}]")
-        segs += [f"[v{k}][a{k}]", f"[bv{j}][ba{j}]"]
+        segs.append(f"[v{k}][a{k}]")
+        if b[tag] is not None:
+            fc.append(f"[{inp[j]}:v]{norm_v}[bv{j}]")
+            fc.append(f"[{inp[j]}:a]{norm_a}[ba{j}]")
+            segs.append(f"[bv{j}][ba{j}]")
         prev, k = b.get("back", b["t"]), k + 1
     fc.append(f"[sv{k}]trim={prev:.3f}:{dur:.3f},setpts=PTS-STARTPTS[v{k}]")
     # the program's own audio is padded with silence: cut it to the picture's length
     fc.append(f"[sa{k}]atrim={prev:.3f}:{dur:.3f},asetpts=PTS-STARTPTS[a{k}x]")
     segs.append(f"[v{k}][a{k}x]")
     for j, b in enumerate(breaks):
-        if b["t"] < 0:
-            fc.append(f"[{j + 2}:v]{norm_v}[bv{j}]")
-            fc.append(f"[{j + 2}:a]{norm_a}[ba{j}]")
+        if b["t"] < 0 and b[tag] is not None:
+            fc.append(f"[{inp[j]}:v]{norm_v}[bv{j}]")
+            fc.append(f"[{inp[j]}:a]{norm_a}[ba{j}]")
             segs.append(f"[bv{j}][ba{j}]")
     fc.append("".join(segs) + f"concat=n={len(segs)}:v=1:a=1[vc][ao]")
     fc.append(f"[vc]{post_vf or 'null'}[vo]")

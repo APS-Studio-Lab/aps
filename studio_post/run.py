@@ -406,7 +406,7 @@ def main(argv=None):
                 from . import pensfx
                 pensfx.mix_into(master_wav, pen, c["start_s"])
         brk = breaks.prepare(br, cfg.get("breaks", []), words, _find_phrase, lambda p: _path(p, base), inserts,
-                             work, report) if cfg.get("breaks") else []
+                             work, report, master_wav) if cfg.get("breaks") else []
     import cv2
     target_y, tint = look.scene_match(cv2.imread(str(bg_h)).astype(np.float32) / 255)
     if not cfg.get("background", {}).get("image_h"):
