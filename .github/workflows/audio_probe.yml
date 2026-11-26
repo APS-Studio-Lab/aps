@@ -55,6 +55,10 @@ jobs:
           echo "::add-mask::$P"; echo "::add-mask::$O"
           rclone copyto "gdrive:$STUDIO_ROOT/$P" in.media -q
           mkdir -p "out/$O"
+          if [ "$T" = "audio" ]; then  # the whole sound track, small (Opus), for timing checks
+            ffmpeg -v error -y -i in.media -vn -ac 1 -ar 24000 -c:a libopus -b:a 24k "out/$O/audio.ogg"
+            T=""
+          fi
           IFS=',' read -ra TS <<< "$T"
           for t in "${TS[@]}"; do
             ffmpeg -v error -y -ss "$t" -i in.media -frames:v 1 -vf scale=640:-2 -q:v 3 "out/$O/f_${t}.jpg"
