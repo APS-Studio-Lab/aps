@@ -18,6 +18,7 @@ Job YAML:
       before_phrase: "..."     # or: cut in just before these words (the line the presenter comes back on)
       skip_to_phrase: "..."    # optional: the break replaces the program up to these words (a line it says instead)
       pad_s: 0.25              # air after the last word / before the next word
+      snap_window: [0.8, 1.0]  # how far (s) before/after the cut it may move to find the pause
       ...insert data (logo, episode, title, number, line, stamp, place, bg_shift, bg_soft)
 """
 from __future__ import annotations
@@ -30,7 +31,7 @@ import numpy as np
 
 from .util import FPS, StageError
 
-KEYS = ("insert", "cut", "snap", "after_phrase", "before_phrase", "skip_to_phrase", "at_s", "at", "seconds", "audio", "audio_start",
+KEYS = ("insert", "cut", "snap", "snap_window", "back_snap_window", "after_phrase", "before_phrase", "skip_to_phrase", "at_s", "at", "seconds", "audio", "audio_start",
         "audio_gain_db", "fade_in_s", "fade_out_s", "pad_s", "near_s")
 
 
@@ -133,9 +134,11 @@ def prepare(br, items: list[dict], words: list[dict] | None, find_phrase, base_p
             continue
         if db is not None and b.get("snap", True):  # land in the pause after the sentence, never inside a word
             t0, back0 = t, t_back
-            t, moved = _snap(db, t)
+            sb, sa = (b.get("snap_window") or (0.8, 1.0))
+            t, moved = _snap(db, t, float(sb), float(sa))
             if t_back > t0:
-                t_back, _ = _snap(db, back0)
+                bb, ba = (b.get("back_snap_window") or (0.8, 1.0))
+                t_back, _ = _snap(db, back0, float(bb), float(ba))
             elif t_back >= 0:
                 t_back = t
             if not moved and t >= 0:
