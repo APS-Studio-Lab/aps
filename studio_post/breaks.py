@@ -77,31 +77,26 @@ def _quiet_curve(audio: Path):
     return 20 * np.log10(rms)
 
 
-def _snap(db, t: float, before: float = 0.9, after: float = 0.5) -> tuple[float, bool]:
-    """Move a cut point into the nearest pause (never inside a word). Returns (time, moved)."""
+def _snap(db, t: float, before: float = 0.8, after: float = 1.0) -> tuple[float, bool]:
+    """Move a cut point into the pause between sentences: the deepest dip in the voice near t (the transcript's
+    word times can be half a second off, and the edit leaves only short gaps). Returns (time, moved)."""
     if t < 0:
         return t, False
     a, b = max(0, int((t - before) * 100)), min(len(db), int((t + after) * 100))
-    if b - a < 5:
+    if b - a < 10:
         return t, False
-    w = db[a:b]
-    quiet = w < min(-38.0, float(np.percentile(w, 20)) + 6)
-    best, best_d = None, 1e9
-    i = 0
-    while i < len(w):
-        if quiet[i]:
-            j = i
-            while j < len(w) and quiet[j]:
-                j += 1
-            if j - i >= 8:  # a pause of 80 ms or more
-                mid = (a + (i + j) / 2) / 100
-                d = abs(mid - t)
-                if d < best_d:
-                    best, best_d = mid, d
-            i = j
-        else:
-            i += 1
-    return (best, True) if best is not None else (t, False)
+    w = np.convolve(db[a:b], np.ones(6) / 6, mode="same")      # 60 ms
+    times = (a + np.arange(len(w))) / 100
+    score = w + 6.0 * np.abs(times - t)                          # a little closer wins over a little deeper
+    i = int(np.argmin(score[3:-3])) + 3
+    if w[i] > float(np.median(w)) - 8:                           # no real dip: leave it
+        return t, False
+    j0 = j1 = i                                                  # the middle of the quiet stretch
+    while j0 > 0 and w[j0 - 1] < w[i] + 4:
+        j0 -= 1
+    while j1 < len(w) - 1 and w[j1 + 1] < w[i] + 4:
+        j1 += 1
+    return float(times[(j0 + j1) // 2]), True
 
 
 def _place(b: dict, words, find_phrase) -> tuple[float, float]:
