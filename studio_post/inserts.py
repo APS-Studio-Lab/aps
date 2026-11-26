@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .util import REPO, StageError
+from .util import REPO, StageError, vertical_on
 
 TEMPLATES = REPO / "graphics" / "inserts"
 PLATES = REPO / "00_Brand" / "archive"
@@ -147,6 +147,9 @@ def render(browser, kind: str, data: dict, seconds: float, work: Path, tag: str)
             raise StageError(f"insert '{kind}': motion clip not found: {bg}")
     outs = []
     for vertical, (w, h) in ((False, (1920, 1080)), (True, (1080, 1920))):
+        if vertical and not vertical_on():
+            outs.append(None)
+            continue
         d = dict(data)
         o = "v" if vertical else "h"
         if kind == "chapter" and not bg:

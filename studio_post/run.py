@@ -22,7 +22,7 @@ import yaml
 
 from . import brandkit, breaks, inserts, overlays, joins, analyze, audio, captions, compose, edit, ingest, look, qc, retakes, transcribe
 from .keyer import Keyer
-from .util import FPS, REPO, Browser, StageError, fill, run
+from .util import FPS, REPO, Browser, StageError, fill, run, vertical_on
 
 
 def _path(p: str | None, base: Path) -> Path | None:
@@ -167,8 +167,8 @@ def _gfx(task):
             h, v = inserts.render(br, a, b, secs, work, tag)
         else:
             h = br.capture_animation(Path(a), work / f"cut{tag}_h.mp4", 1920, 1080, secs)
-            v = br.capture_animation(Path(b), work / f"cut{tag}_v.mp4", 1080, 1920, secs)
-    return str(h), str(v)
+            v = br.capture_animation(Path(b), work / f"cut{tag}_v.mp4", 1080, 1920, secs) if vertical_on() else None
+    return str(h), (str(v) if v else None)
 
 
 def main(argv=None):
@@ -180,6 +180,8 @@ def main(argv=None):
 
     job_file = Path(a.job).resolve()
     cfg = yaml.safe_load(job_file.read_text(encoding="utf-8"))
+    # full episodes can skip the 9:16 version (graphics, compositing and encode for 16:9 only)
+    os.environ["STUDIO_VERTICAL"] = "1" if (cfg.get("output") or {}).get("vertical", True) else "0"
     base = job_file.parent
     name = cfg["job"]
     work = Path(a.work or (REPO / "work" / name)).resolve()
@@ -398,7 +400,7 @@ def main(argv=None):
         if todo:
             with ProcessPoolExecutor(max(1, min(len(todo), int(cfg.get("graphics_workers", 3))))) as ex:
                 for c, (h, v) in zip(todo, ex.map(_gfx, [c["_task"] for c in todo])):
-                    c["h"], c["v"] = Path(h), Path(v)
+                    c["h"], c["v"] = Path(h), (Path(v) if v else None)
                     c.pop("_task")
         for c in cutaways:
             pen = c.pop("_pen", None)
@@ -444,6 +446,8 @@ def main(argv=None):
 
     outputs = {}
     for tag, fname in (("h", "master_16x9.mp4"), ("v", "short_9x16.mp4")):
+        if tag == "v" and not vertical_on():
+            continue
         lst = work / f"list_{tag}.txt"
         lst.write_text("".join(f"file '{work / f'{tag}_{w}.mp4'}'\n" for w in range(len(jobs))))
         out = out_dir / f"{name}_{fname}"

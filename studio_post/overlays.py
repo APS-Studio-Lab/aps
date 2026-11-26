@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from .util import REPO, StageError
+from .util import REPO, StageError, vertical_on
 
 FREE = re.compile(r"^(cc0|public domain|pd|cc[ -]by(-sa)?[ -]\d(\.\d)?)", re.I)
 UA = {"User-Agent": "studio-post/1.0 (overlay credits; contact via repository)"}
@@ -80,5 +80,5 @@ def render(br, kind: str, data: dict, seconds: float, work: Path, tag: str) -> t
     page = work / f"overlay_{tag}.html"
     page.write_text(html, encoding="utf-8")
     h = br.capture_overlay(page, work / f"overlay_{tag}_h.mov", 1920, 1080, seconds)
-    v = br.capture_overlay(page, work / f"overlay_{tag}_v.mov", 1080, 1920, seconds)
+    v = br.capture_overlay(page, work / f"overlay_{tag}_v.mov", 1080, 1920, seconds) if vertical_on() else None
     return h, v

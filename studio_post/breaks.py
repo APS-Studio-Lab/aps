@@ -165,7 +165,7 @@ def prepare(br, items: list[dict], words: list[dict] | None, find_phrase, base_p
             b = dict(b, audio=str(base_path(b["audio"])))
         h, v = inserts.render(br, b["insert"], data, float(b["seconds"]), work, f"brk{i}")
         h = _with_audio(h, b, bg, work / f"break{i}_h.mp4")
-        v = _with_audio(v, b, bg, work / f"break{i}_v.mp4")
+        v = _with_audio(v, b, bg, work / f"break{i}_v.mp4") if v is not None else None
         out.append({"t": t, "back": max(t, t_back), "h": h, "v": v, "kind": b["insert"], "seconds": float(b["seconds"])})
         report.setdefault("breaks", {})["end" if t < 0 else f"{t:7.2f}s"] = f"{b['insert']} ({float(b['seconds']):.1f}s)"
     return sorted(out, key=lambda x: (x["t"] < 0, x["t"]))

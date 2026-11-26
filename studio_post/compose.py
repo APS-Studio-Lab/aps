@@ -10,7 +10,7 @@ import numpy as np
 
 from .keyer import Keyer, despill
 from .look import Finisher, relight
-from .util import FPS, StageError
+from .util import FPS, StageError, vertical_on
 
 
 @dataclass
@@ -160,13 +160,15 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
 
     # cutaway clips: streamed lazily, frame by frame, only while they are on screen
     t0, t1 = first_out_index / FPS, (first_out_index + len(frames)) / FPS
+    do_v = vertical_on()
+    VDUMMY = np.zeros((2, 2, 3), np.float32)
     cut_frames = []
     for c in layers.cutaways:
         if c["end_s"] <= t0 or c["start_s"] >= t1:
             continue
         ov_ = bool(c.get("overlay"))
         cut_frames.append({"start": c["start_s"], "end": c["end_s"], "overlay": ov_,
-                           "h": _reader(c["h"], 1920, 1080, alpha=ov_), "v": _reader(c["v"], 1080, 1920, alpha=ov_),
+                           "h": _reader(c["h"], 1920, 1080, alpha=ov_), "v": _reader(c["v"], 1080, 1920, alpha=ov_) if do_v else iter(()),
                            "pos": -1, "fh": None, "fv": None})
 
     sel = "+".join(f"eq(n\\,{f})" for f in frames) if len(frames) < 400 else None
@@ -178,7 +180,7 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
                 s = b
         sel = "+".join(ranges)
     src = _reader(mezz, 1920, 1080, sel)
-    wh, wv = _writer(out_h, 1920, 1080), _writer(out_v, 1080, 1920)
+    wh, wv = _writer(out_h, 1920, 1080), (_writer(out_v, 1080, 1920) if do_v else None)
     S = layers.vertical_scale
     cx_s = None
     count = 0
@@ -196,7 +198,7 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
         if screen is not None and n_src < len(screen) and not screen[n_src] and masked is None:
             # not a green-screen shot (a graphic, logo card or fade already in a pre-edited export): pass through
             Hf = fr.astype(np.float32) / 255
-            Vf = _fit_vertical(Hf)
+            Vf = _fit_vertical(Hf) if do_v else VDUMMY
             cx_s = None
         else:
             a = keyer.alpha(fr)
@@ -232,38 +234,41 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
             if logo is not None:
                 _blend_rgba(Hf, logo, 60, 60, 0.9)
 
-            if framing is not None and first_out_index + k > 0 and _snap(framing, first_out_index + k):
-                cx_s = None  # a cut: reframe the short at once instead of drifting across
-            cx = track[n_src, 0] if track[n_src, 4] > 0 else (cx_s or 960.0)
-            cx_s = cx if cx_s is None else (cx_s + 0.04 * (cx - cx_s) if abs(cx - cx_s) > 25 else cx_s)
-            # scale only the strip of the source that lands in the vertical frame (not the whole frame)
-            hS, wS = int(round(f.shape[0] * S)), int(round(f.shape[1] * S))
-            x0 = int(np.clip(cx_s * S - 540, 0, wS - 1080))
-            sx0, sx1 = int(x0 / S), min(f.shape[1], int(np.ceil((x0 + 1080) / S)) + 2)
-            fs = cv2.resize(f[:, sx0:sx1], (int(round((sx1 - sx0) * S)), hS), interpolation=cv2.INTER_CUBIC)
-            as_ = cv2.resize(a[:, sx0:sx1], (fs.shape[1], hS), interpolation=cv2.INTER_LINEAR)
-            ox = max(0, x0 - int(round(sx0 * S)))
-            if fs.shape[1] < ox + 1080:  # rounding at the right edge: pad by a pixel or two
-                padw = ox + 1080 - fs.shape[1]
-                fs = cv2.copyMakeBorder(fs, 0, 0, 0, padw, cv2.BORDER_REPLICATE)
-                as_ = cv2.copyMakeBorder(as_, 0, 0, 0, padw, cv2.BORDER_REPLICATE)
-            y0 = 1920 - hS
-            fv = np.zeros((1920, 1080, 3), np.float32)
-            av = np.zeros((1920, 1080), np.float32)
-            fv[y0:], av[y0:] = fs[:, ox:ox + 1080], as_[:, ox:ox + 1080]
-            AV = av[..., None]
-            ev = cv2.GaussianBlur(1 - av, (0, 0), 6)[..., None] * AV
-            Vc = fv * AV + bgv * (1 - AV) + wrv * ev * layers.wrap
-            Vc = _separate(Vc, fv, AV, bgv, layers.backlight, layers.rim)
-            if framing is not None and z > 1.0001:
-                fx, fy = framing[first_out_index + k][1:]
-                Vc = _punch(Vc, 1 + (float(z) - 1) * 0.8, float(fx) * S - x0, y0 + float(fy) * S)
-            Vf = fin_v.apply(Vc, first_out_index + k)
-        if ov is not None:
+            if do_v:
+                if framing is not None and first_out_index + k > 0 and _snap(framing, first_out_index + k):
+                    cx_s = None  # a cut: reframe the short at once instead of drifting across
+                cx = track[n_src, 0] if track[n_src, 4] > 0 else (cx_s or 960.0)
+                cx_s = cx if cx_s is None else (cx_s + 0.04 * (cx - cx_s) if abs(cx - cx_s) > 25 else cx_s)
+                # scale only the strip of the source that lands in the vertical frame (not the whole frame)
+                hS, wS = int(round(f.shape[0] * S)), int(round(f.shape[1] * S))
+                x0 = int(np.clip(cx_s * S - 540, 0, wS - 1080))
+                sx0, sx1 = int(x0 / S), min(f.shape[1], int(np.ceil((x0 + 1080) / S)) + 2)
+                fs = cv2.resize(f[:, sx0:sx1], (int(round((sx1 - sx0) * S)), hS), interpolation=cv2.INTER_CUBIC)
+                as_ = cv2.resize(a[:, sx0:sx1], (fs.shape[1], hS), interpolation=cv2.INTER_LINEAR)
+                ox = max(0, x0 - int(round(sx0 * S)))
+                if fs.shape[1] < ox + 1080:  # rounding at the right edge: pad by a pixel or two
+                    padw = ox + 1080 - fs.shape[1]
+                    fs = cv2.copyMakeBorder(fs, 0, 0, 0, padw, cv2.BORDER_REPLICATE)
+                    as_ = cv2.copyMakeBorder(as_, 0, 0, 0, padw, cv2.BORDER_REPLICATE)
+                y0 = 1920 - hS
+                fv = np.zeros((1920, 1080, 3), np.float32)
+                av = np.zeros((1920, 1080), np.float32)
+                fv[y0:], av[y0:] = fs[:, ox:ox + 1080], as_[:, ox:ox + 1080]
+                AV = av[..., None]
+                ev = cv2.GaussianBlur(1 - av, (0, 0), 6)[..., None] * AV
+                Vc = fv * AV + bgv * (1 - AV) + wrv * ev * layers.wrap
+                Vc = _separate(Vc, fv, AV, bgv, layers.backlight, layers.rim)
+                if framing is not None and z > 1.0001:
+                    fx, fy = framing[first_out_index + k][1:]
+                    Vc = _punch(Vc, 1 + (float(z) - 1) * 0.8, float(fx) * S - x0, y0 + float(fy) * S)
+                Vf = fin_v.apply(Vc, first_out_index + k)
+            else:
+                Vf = VDUMMY
+        if ov is not None and do_v:
             _blend_rgba(Vf, ov, 0, 0)
         for key in [kk for kk, (ce, _) in cap_cache.items() if ce <= t]:
             del cap_cache[key]
-        for cs, ce, png_path in caps:
+        for cs, ce, png_path in (caps if do_v else []):
             if cs > t:
                 break
             if t < ce:
@@ -276,21 +281,22 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
             if c["start"] <= t < c["end"]:
                 want = int(round((t - c["start"]) * FPS))
                 while c["pos"] < want:
-                    nh, nv = next(c["h"], None), next(c["v"], None)
+                    nh, nv = next(c["h"], None), (next(c["v"], None) if do_v else VDUMMY)
                     if nh is None or nv is None:
                         break
                     c["fh"], c["fv"], c["pos"] = nh, nv, c["pos"] + 1
                 if c["fh"] is None:
                     continue
                 if c["overlay"]:  # a graphic OVER the running video (name card, lower third): its own alpha
-                    for F, O in ((Hf, c["fh"]), (Vf, c["fv"])):
+                    for F, O in (((Hf, c["fh"]), (Vf, c["fv"])) if do_v else ((Hf, c["fh"]),)):
                         A = O[..., 3:4].astype(np.float32) / 255
                         F *= 1 - A
                         F += O[..., :3].astype(np.float32) / 255 * A
                     continue
                 w = min(1.0, (t - c["start"]) / 0.3, (c["end"] - t) / 0.3)
                 Hf = Hf * (1 - w) + c["fh"].astype(np.float32) / 255 * w
-                Vf = Vf * (1 - w) + c["fv"].astype(np.float32) / 255 * w
+                if do_v:
+                    Vf = Vf * (1 - w) + c["fv"].astype(np.float32) / 255 * w
 
         # soft cut: where the edit removed a pause inside one take, dissolve from the held last frame over
         # a couple of frames, so the small body jump reads as motion instead of a pop
@@ -307,9 +313,10 @@ def render_part(mezz: Path, frames: list[int], first_out_index: int, keyer: Keye
         prev_H, prev_V = Hf, Vf
         Hf, Vf = Hf_out, Vf_out
         wh.stdin.write((Hf * 255).astype(np.uint8).tobytes())
-        wv.stdin.write((Vf * 255).astype(np.uint8).tobytes())
+        if wv is not None:
+            wv.stdin.write((Vf * 255).astype(np.uint8).tobytes())
         count += 1
-    for w in (wh, wv):
+    for w in (x for x in (wh, wv) if x is not None):
         w.stdin.close()
         if w.wait() != 0:
             raise StageError("encoder failed")

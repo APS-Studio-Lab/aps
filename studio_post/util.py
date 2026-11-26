@@ -54,6 +54,11 @@ def chrome_path() -> str | None:
     return None  # let Playwright use its bundled Chromium
 
 
+def vertical_on() -> bool:
+    """Whether this job also renders the 9:16 version (output.vertical in the job; on by default)."""
+    return os.environ.get("STUDIO_VERTICAL", "1") != "0"
+
+
 class Browser:
     """Context manager around one headless Chromium for many renders."""
 
