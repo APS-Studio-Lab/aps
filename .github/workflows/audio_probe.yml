@@ -53,8 +53,14 @@ jobs:
         run: |
           set -e
           echo "::add-mask::$P"; echo "::add-mask::$O"
-          rclone copyto "gdrive:$STUDIO_ROOT/$P" in.media -q
           mkdir -p "out/$O"
+          if [ "$T" = "sheet" ]; then  # a folder of photos -> numbered contact sheets for picking
+            rclone copy "gdrive:$STUDIO_ROOT/$P" photos -q
+            python scripts/contact_sheet.py photos "out/$O"
+            rclone copy out "gdrive:$STUDIO_ROOT/02_Renders/_frames" -q
+            echo done; exit 0
+          fi
+          rclone copyto "gdrive:$STUDIO_ROOT/$P" in.media -q
           if [ "$T" = "audio" ]; then  # the whole sound track, small (Opus), for timing checks
             ffmpeg -v error -y -i in.media -vn -ac 1 -ar 24000 -c:a libopus -b:a 24k "out/$O/audio.ogg"
             T=""
