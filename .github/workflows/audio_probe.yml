@@ -56,7 +56,7 @@ jobs:
           mkdir -p "out/$O"
           if [ "$T" = "sheet" ]; then  # a folder of photos -> numbered contact sheets for picking
             rclone copy "gdrive:$STUDIO_ROOT/$P" photos -q
-            python scripts/contact_sheet.py photos "out/$O"
+            pip install -q pillow && python scripts/contact_sheet.py photos "out/$O"
             rclone copy out "gdrive:$STUDIO_ROOT/02_Renders/_frames" -q
             echo done; exit 0
           fi
