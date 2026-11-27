@@ -20,7 +20,7 @@ on:
         required: false
         default: ""
       frames:
-        description: "Instead of a probe: still frames of the file at these seconds (comma-separated), to 02_Renders/_frames/<words or 'frames'>"
+        description: "Instead of a probe: still frames at these seconds (comma-separated) to 02_Renders/_frames/<words>; 'sheet' = contact sheets of a photo folder; 'cutout' = green-screen photo folder to a sibling cutouts folder"
         required: false
         default: ""
       limit:
@@ -54,6 +54,13 @@ jobs:
           set -e
           echo "::add-mask::$P"; echo "::add-mask::$O"
           mkdir -p "out/$O"
+          if [ "$T" = "cutout" ]; then  # a folder of green-screen photos -> cutouts in a sibling 'cutouts' folder
+            D="$(dirname "$P")/cutouts"; echo "::add-mask::$D"
+            rclone copy "gdrive:$STUDIO_ROOT/$P" photos -q
+            python scripts/cutout.py photos cut
+            rclone copy cut "gdrive:$STUDIO_ROOT/$D" -q
+            echo done; exit 0
+          fi
           if [ "$T" = "sheet" ]; then  # a folder of photos -> numbered contact sheets for picking
             rclone copy "gdrive:$STUDIO_ROOT/$P" photos -q
             pip install -q pillow && python scripts/contact_sheet.py photos "out/$O"
